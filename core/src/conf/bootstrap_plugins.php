@@ -61,14 +61,26 @@ $PLUGINS = array(
 				)
 			)
 	),
+		/*
 	"AUTH_DRIVER" => array(
-		"NAME"		=> "serial",
-		"OPTIONS"	=> array(
-			"LOGIN_REDIRECT"		=> false,
-			"USERS_FILEPATH"		=> "AJXP_DATA_PATH/plugins/auth.serial/users.ser",
-			"AUTOCREATE_AJXPUSER" 	=> false, 
-			"TRANSMIT_CLEAR_PASS"	=> false )
-	),
+			"NAME"		=> "serial",
+			"OPTIONS"	=> array(
+				"LOGIN_REDIRECT"		=> false,
+				"USERS_FILEPATH"		=> "AJXP_DATA_PATH/plugins/auth.serial/users.ser",
+				"AUTOCREATE_AJXPUSER" 	=> false, 
+				"TRANSMIT_CLEAR_PASS"	=> false )
+		),
+	*/
+	"AUTH_DRIVER" => array(
+		"NAME"          => "remote",
+		"OPTIONS"       => array(
+		"SLAVE_MODE"  => true,
+		"USERS_FILEPATH" => "AJXP_INSTALL_PATH/data/cache/users.ser",
+		"LOGIN_URL" => "/users/login",  // The URL to redirect to if a non-logged user tries to access AjaXplorer
+		"LOGOUT_URL" => "/users/logout",  // The URL to redirect upon login out
+		"SECRET" => "mysecret",// the secret key that you will pass to the glueCode when communicating with it (see below)		
+		"TRANSMIT_CLEAR_PASS"   => false ) // Don't touch this. It's unsafe (and useless here) to transmit clear password.
+ 	),	
     "LOG_DRIVER" => array(
          "NAME" => "text",
          "OPTIONS" => array(

@@ -44,6 +44,7 @@ if (!class_exists("SessionSwitcher")) {
     require_once("$CURRENTPATH/sessionSwitcher.php");
 }
 $pServ = AJXP_PluginsService::getInstance();
+
 ConfService::init();
 $confPlugin = ConfService::getInstance()->confPluginSoftLoad($pServ);
 $pServ->loadPluginsRegistry("$FRAMEWORK_PATH/plugins", $confPlugin);
