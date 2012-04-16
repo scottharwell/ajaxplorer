@@ -279,6 +279,15 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
         }
         if($parseContent && in_array($ext, explode(",",$this->pluginConf["PARSE_CONTENT_HTML"]))){
             $doc = Zend_Search_Lucene_Document_Html::loadHTMLFile($ajxpNode->getUrl());
+        }elseif($parseContent && $ext == "docx" && class_exists("Zend_Search_Lucene_Document_Docx")){
+        	$realFile = call_user_func(array($ajxpNode->wrapperClassName, "getRealFSReference"), $ajxpNode->getUrl());
+        	$doc = Zend_Search_Lucene_Document_Docx::loadDocxFile($realFile);
+        }elseif($parseContent && $ext == "docx" && class_exists("Zend_Search_Lucene_Document_Pptx")){
+        	$realFile = call_user_func(array($ajxpNode->wrapperClassName, "getRealFSReference"), $ajxpNode->getUrl());
+        	$doc = Zend_Search_Lucene_Document_Docx::loadPptxFile($realFile);
+        }elseif($parseContent && $ext == "xlsx" && class_exists("Zend_Search_Lucene_Document_Xlsx")){
+        	$realFile = call_user_func(array($ajxpNode->wrapperClassName, "getRealFSReference"), $ajxpNode->getUrl());
+        	$doc = Zend_Search_Lucene_Document_Docx::loadXlsxFile($realFile);
         }else{
             $doc = new Zend_Search_Lucene_Document();
         }
@@ -293,6 +302,47 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
         if($parseContent && in_array($ext, explode(",",$this->pluginConf["PARSE_CONTENT_TXT"]))){
             $doc->addField(Zend_Search_Lucene_Field::unStored("body", file_get_contents($ajxpNode->getUrl())));
         }
+        if($parseContent && !empty($this->pluginConf["UNOCONV"]) && in_array($ext, array("doc", "odt", "xls", "ods"))){
+        	$targetExt = "txt";
+        	$pipe = false;
+        	if(in_array($ext, array("xls", "ods"))){
+        		$targetExt = "csv";
+        	}else if(in_array($ext, array("odp", "ppt"))){
+        		$targetExt = "pdf";
+        		$pipe = true;
+        	}
+        	$realFile = call_user_func(array($ajxpNode->wrapperClassName, "getRealFSReference"), $ajxpNode->getUrl());
+        	$unoconv = "HOME=".AJXP_Utils::getAjxpTmpDir()." ".$this->pluginConf["UNOCONV"]." --stdout -f $targetExt ".escapeshellarg($realFile);
+        	if($pipe){
+        		$newTarget = str_replace(".$ext", ".pdf", $realFile);
+        		$unoconv.= " > $newTarget";
+        		register_shutdown_function("unlink", $newTarget);
+        	}
+        	$output = array();
+        	exec($unoconv, $output, $return);
+        	if(!$pipe){
+	        	$out = implode("\n", $output);
+	        	$enc = 'ISO-8859-1';
+	        	$asciiString = iconv($enc, 'ASCII//TRANSLIT//IGNORE', $out);
+	       		$doc->addField(Zend_Search_Lucene_Field::unStored("body", $asciiString));
+        	}else{
+        		$ext = "pdf";
+        	}
+        }
+        if($parseContent && !empty($this->pluginConf["PDFTOTEXT"]) && in_array($ext, array("pdf"))){
+        	$realFile = call_user_func(array($ajxpNode->wrapperClassName, "getRealFSReference"), $ajxpNode->getUrl());
+        	if($pipe && isset($newTarget) && is_file($newTarget)){
+        		$realFile = $newTarget;
+        	}
+        	$cmd = $this->pluginConf["PDFTOTEXT"]." ".escapeshellarg($realFile)." -";
+        	$output = array();
+        	exec($cmd, $output, $return);
+        	$out = implode("\n", $output);
+        	$enc = 'UTF8';
+        	$asciiString = iconv($enc, 'ASCII//TRANSLIT//IGNORE', $out);
+       		$doc->addField(Zend_Search_Lucene_Field::unStored("body", $asciiString));       		
+        }
+        
         // Store a cached copy of the metadata
         $doc->addField(Zend_Search_Lucene_Field::Binary("serialized_metadata", base64_encode(serialize($ajxpNode->metadata))));
         return $doc;
@@ -326,17 +376,17 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
     }
 
     protected function lockIndex($repositoryId){
-        $iPath = AJXP_CACHE_DIR."/indexes";
+        $iPath = (defined('AJXP_SHARED_CACHE_DIR')?AJXP_SHARED_CACHE_DIR:AJXP_CACHE_DIR)."/indexes";
         if(!is_dir($iPath)) mkdir($iPath,0755, true);
         touch($iPath."/.ajxp_lock-".$repositoryId.$this->specificId);
     }
 
     protected function isIndexLocked($repositoryId){
-        return file_exists(AJXP_CACHE_DIR."/indexes/.ajxp_lock-".$repositoryId.$this->specificId);
+        return file_exists((defined('AJXP_SHARED_CACHE_DIR')?AJXP_SHARED_CACHE_DIR:AJXP_CACHE_DIR)."/indexes/.ajxp_lock-".$repositoryId.$this->specificId);
     }
 
     protected function releaseLock($repositoryId){
-        @unlink(AJXP_CACHE_DIR."/indexes/.ajxp_lock-".$repositoryId.$this->specificId);
+        @unlink((defined('AJXP_SHARED_CACHE_DIR')?AJXP_SHARED_CACHE_DIR:AJXP_CACHE_DIR)."/indexes/.ajxp_lock-".$repositoryId.$this->specificId);
     }
 
 	/**
@@ -348,8 +398,9 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
 	 */
 	protected function loadIndex($repositoryId, $create = true){
         require_once("Zend/Search/Lucene.php");
-        $iPath = AJXP_CACHE_DIR."/indexes/index-$repositoryId".$this->specificId;
-        if(!is_dir(AJXP_CACHE_DIR."/indexes")) mkdir(AJXP_CACHE_DIR."/indexes",0755,true);
+        $mainCacheDir = (defined('AJXP_SHARED_CACHE_DIR')?AJXP_SHARED_CACHE_DIR:AJXP_CACHE_DIR);
+        $iPath = $mainCacheDir."/indexes/index-$repositoryId".$this->specificId;
+        if(!is_dir($mainCacheDir."/indexes")) mkdir($mainCacheDir."/indexes",0755,true);
 		if(is_dir($iPath)){
 		    $index = Zend_Search_Lucene::open($iPath);
 		}else{
