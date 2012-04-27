@@ -13,17 +13,34 @@ Custom Branch Configuration
 
 I have altered the codebase so that I can place the ajaxplorer repo in the [CakePHP](http://cakephp.org) `Vendors` directory. This will work in both the `app/Vendors` and `vendors` directories.
 
-##Installation##
+This custom configuration assumes a `Users` controller with `login` and `logout` functions.
 
-1. Clone this repository into the `Vendors` directory of your application.
+###Installation###
+
+1. Clone this repository into the `Vendors` directory of your CakePHP application.
 2. Create a symbolic link in your application's `webroot` directory pointing to the `src` folder in the repo.
 	- `ln -s ../Vendors/ajaxplorer/core/src ajaxplorer`
-3. Edit your application's `bootstrap` file to include the following settings.
 
+###Implementation###
 
+There are many ways to implement AjaxPlorer with CakePHP. There are many custom variables that can go into the authentication processes. The instructions below are a simple guide to get started.
 
-License
-=======
+If you are having trouble, then please do not create an issue request as the problem is almost certainly with your configuration and not an issue with this app. If you need assistance with [AjaxPlorer](http://ajaxplorer.info) or [CakePHP](http://cakephp.net), then please use the references that those tools provide.
+
+1. Edit AjaxPlorer's Auth.remote plugin glueCode with a secret specific to your installation.
+	* If you followed the instructions above, you can file this file in `webroot/ajaxplorer/plugins/auth.remote/glueCode.php`.
+2. Edit your applications `bootstrap.php` file with the secret variable.
+	* `Configure::write('Ajaxplorer.secret', 'secretFromGlueCode');`
+3. Integrate Ajaxplorer remote code with CakePHP.
+	* There are no easy answers to how to approach this step. You will have to reference the CakePHP and AjaxPlorer API's to figure out the integration based on how you have built your authentication system.
+	* I have created an AjaxPlorer to CakePHP bridge component for CakePHP that can assist with the authentication. You can download it from it's [Github Repo](https://github.com/scottharwell/ajaxplorer-cakephp-bridge-component).
+		* There are instructions with the repository on how to use this component. If you have a simple authentication mechanism, then you can simply add `$this->Ajaxplorer->login($user);` to your login function and your user will be logged in to both CakePHP and AjaxPlorer simultaneously.
+
+License Information
+===================
+
+AjaxPlorer License
+------------------
 
 This program is published under the LGPL GNU Lesser General Public License. You should have received a copy of the license along with AjaXplorer.
 
@@ -36,3 +53,8 @@ If you modify your copy or copies of the library or any portion of it, you may d
 If you copy or distribute the program, you must accompany it with the complete corresponding machine-readable source code or with a written offer, valid for at least three years, to furnish the complete corresponding machine-readable source code.
 
 Any of the above conditions can be waived if you get permission from the copyright holder. AjaXplorer is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+Custom Updates
+--------------
+
+I have not applied any copyright to the changes I have made to the AjaxPlorer application. They should fall under the same license as the application itself.
