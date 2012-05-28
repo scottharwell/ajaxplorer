@@ -618,7 +618,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 
             case "lsync" :
 
-                if(!defined("STDIN")){
+                if(!ConfService::currentContextIsCommandLine()){
                     die("This command must be accessed via CLI only.");
                 }
                 $fromNode = null;
@@ -1324,7 +1324,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
         AJXP_Controller::applyHook("node.change", array($oldNode, new AJXP_Node($new), false));
 	}
 	
-	function autoRenameForDest($destination, $fileName){
+	public static function autoRenameForDest($destination, $fileName){
 		if(!is_file($destination."/".$fileName)) return $fileName;
 		$i = 1;
 		$ext = "";
@@ -1808,6 +1808,9 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 			"CREATE" => false, 
 			"RECYCLE_BIN" => "", 
 			"DEFAULT_RIGHTS" => "");
+        if($repository->getOption("USE_SESSION_CREDENTIALS")===true){
+            $newOptions["ENCODED_CREDENTIALS"] = AJXP_Safe::getEncodedCredentialString();
+        }
     	return $newOptions;			
     }
 

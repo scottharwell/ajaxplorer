@@ -183,6 +183,18 @@ class AuthService
         return !AuthService::checkBruteForceLogin($loginAttempt);
     }
 
+    static function filterUserSensitivity($user){
+        if(!ConfService::getCoreConf("CASE_SENSITIVE", "auth")){
+            return strtolower($user);
+        }else{
+            return $user;
+        }
+    }
+
+    static function ignoreUserCase(){
+        return !ConfService::getCoreConf("CASE_SENSITIVE", "auth");
+    }
+
     /**
      * @static
      * @param AbstractAjxpUser $user
@@ -229,6 +241,7 @@ class AuthService
      */
 	static function logUser($user_id, $pwd, $bypass_pwd = false, $cookieLogin = false, $returnSeed="")
 	{
+        $user_id = self::filterUserSensitivity($user_id);
         if($cookieLogin && !isSet($_COOKIE["AjaXplorer-remember"])){
             return -5; // SILENT IGNORE
         }
@@ -301,7 +314,7 @@ class AuthService
 		}
 		$_SESSION["AJXP_USER"] = $user;
 		if($authDriver->autoCreateUser() && !$user->storageExists()){
-			$user->save();
+			$user->save("superuser"); // make sure update rights now
 		}
 		AJXP_Logger::logAction("Log In");
 		return 1;
@@ -533,6 +546,7 @@ class AuthService
      */
 	static function createUser($userId, $userPass, $isAdmin=false)
 	{
+        AJXP_Controller::applyHook("user.before_create", array($userId, $userPass, $isAdmin));
         if(!ConfService::getCoreConf("ALLOW_GUEST_BROWSING", "auth") && $userId == "guest"){
             throw new Exception("Reserved user id");
         }
@@ -548,6 +562,7 @@ class AuthService
 			$user->setAdmin(true);			
 			$user->save("superuser");
 		}
+        AJXP_Controller::applyHook("user.after_create", array($user));
 		AJXP_Logger::logAction("Create User", array("user_id"=>$userId));
 		return null;
 	}
@@ -574,6 +589,7 @@ class AuthService
      */
 	static function deleteUser($userId)
 	{
+        AJXP_Controller::applyHook("user.before_delete", array($userId));
 		$authDriver = ConfService::getAuthDriverImpl();
 		$authDriver->deleteUser($userId);
 		$subUsers = array();
@@ -582,7 +598,8 @@ class AuthService
 			$authDriver->deleteUser($deletedUser);
 		}
 
-		AJXP_Logger::logAction("Delete User", array("user_id"=>$userId, "sub_user" => implode(",", $subUsers)));
+        AJXP_Controller::applyHook("user.after_delete", array($userId));
+        AJXP_Logger::logAction("Delete User", array("user_id"=>$userId, "sub_user" => implode(",", $subUsers)));
 		return true;
 	}
 	/**
@@ -604,7 +621,17 @@ class AuthService
 		}
 		return $allUsers;
 	}
-		
+
+    static function getAuthScheme($userName){
+        $authDriver = ConfService::getAuthDriverImpl();
+        return $authDriver->getAuthScheme($userName);
+    }
+
+    static function driverSupportsAuthSchemes(){
+        $authDriver = ConfService::getAuthDriverImpl();
+        return $authDriver->supportsAuthSchemes();
+    }
+
 	/**
 	 * Get Role by Id
 	 *

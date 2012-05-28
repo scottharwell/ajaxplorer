@@ -25,18 +25,30 @@ class FilesystemMounter extends AJXP_Plugin
 {
     protected $accessDriver;
 
-    public function initMeta($accessDriver){
+    public function beforeInitMeta($accessDriver){
         $this->accessDriver = $accessDriver;
         if($this->isAlreadyMounted()) return;
         $this->mountFS();
+    }
+
+    public function initMeta($accessDriver){
+        $this->accessDriver = $accessDriver;
+        /*
+        if($this->isAlreadyMounted()) return;
+        $this->mountFS();
+        */
     }
 
     protected function getCredentials(){
 		// 1. Try from plugin config
         $user = $this->options["USER"];
         $password = $this->options["PASS"];
+        // 1BIS : encoded?
+        if($user == "" && isSet($this->options["ENCODED_CREDENTIALS"])){
+            list($user,$password) = AJXP_Safe::getCredentialsFromEncodedString($this->options["ENCODED_CREDENTIALS"]);
+        }
 		// 2. Try from session
-		if($user=="" &&  $this->options["USE_SESSION_CREDENTIALS"] ){
+		if($user=="" &&  isSet($this->options["USE_SESSION_CREDENTIALS"]) ){
 			$safeCred = AJXP_Safe::loadCredentials();
 			if($safeCred !== false){
 				$user = $safeCred["user"];
@@ -50,6 +62,8 @@ class FilesystemMounter extends AJXP_Plugin
         $opt = $this->options[$name];
         $opt = str_replace("AJXP_USER", $user, $opt);
         $opt = str_replace("AJXP_PASS", $pass, $opt);
+        $opt = str_replace("AJXP_SERVER_UID", posix_getuid(), $opt);
+        $opt = str_replace("AJXP_SERVER_GID", posix_getgid(), $opt);
         if(stristr($opt, "AJXP_REPOSITORY_PATH") !== false){
             $repo = ConfService::getRepository();
             $path = $repo->getOption("PATH");
@@ -78,23 +92,34 @@ class FilesystemMounter extends AJXP_Plugin
         if( $MOUNT_POINT != $MOUNT_POINT_ROOT && !is_dir($MOUNT_POINT_ROOT) && $create){
             @mkdir($MOUNT_POINT_ROOT, 0755);
         }
-        if(!is_dir($MOUNT_POINT)){
+        $recycle = false;
+        if(!is_dir($MOUNT_POINT) && $create){
             @mkdir($MOUNT_POINT, 0755);
+        }else{
+            if($repo->getOption("RECYCLE_BIN") != ""){
+                // Make sure the recycle bin was not mounted inside the mount point!
+                $recycle = $repo->getOption("PATH")."/".$repo->getOption("RECYCLE_BIN");
+                if(@is_dir($recycle)){
+                    @rmdir($recycle);
+                }
+            }
         }
         $UNC_PATH = $this->getOption("UNC_PATH", $user, $password);
         $MOUNT_OPTIONS = $this->getOption("MOUNT_OPTIONS", $user, $password);
 
-        $cmd = ($MOUNT_SUDO?"sudo":"")." mount -t ".$MOUNT_TYPE." ".$UNC_PATH." ".$MOUNT_POINT." -o user=charles,pass=echoes45,uid=www-data,gid=www-data";
+        $cmd = ($MOUNT_SUDO?"sudo":"")." mount -t ".$MOUNT_TYPE." ".$UNC_PATH." ".$MOUNT_POINT." -o ".$MOUNT_OPTIONS;
         shell_exec($cmd);
         // Check it is correctly mounted now!
         $cmd = ($MOUNT_SUDO?"sudo":"")." mount | grep ".escapeshellarg($MOUNT_POINT);
         $output = shell_exec($cmd);
-        if(trim($output) == "") {
+        if($output == null || trim($output) == "") {
             throw new Exception("Error while mounting file system - Test was ".$cmd);
-        }
-        else{
+        }else{
             if(!is_file($MOUNT_POINT."/.ajxp_mount")){
                 @file_put_contents($MOUNT_POINT."/.ajxp_mount", "");
+            }
+            if($recycle !== false && !is_dir($recycle)){
+                @mkdir($recycle, 0755);
             }
         }
     }

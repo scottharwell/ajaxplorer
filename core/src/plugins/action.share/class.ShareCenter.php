@@ -551,6 +551,8 @@ class ShareCenter extends AJXP_Plugin{
             }
             if(!AuthService::userExists($newshareduser)){
                 array_push($users, $newshareduser);
+            }else{
+                throw new Exception("User already exists, please choose another name.");
             }
         }
 		//$userName = AJXP_Utils::decodeSecureMagic($httpVars["shared_user"], AJXP_SANITIZE_ALPHANUM);
@@ -604,6 +606,11 @@ class ShareCenter extends AJXP_Plugin{
         }else{
             if($repository->getOption("META_SOURCES")){
                 $options["META_SOURCES"] = $repository->getOption("META_SOURCES");
+                foreach($options["META_SOURCES"] as $index => $data){
+                    if(isSet($data["USE_SESSION_CREDENTIALS"]) && $data["USE_SESSION_CREDENTIALS"] === true){
+                        $options["META_SOURCES"][$index]["ENCODED_CREDENTIALS"] = AJXP_Safe::getEncodedCredentialString();
+                    }
+                }
             }
             $newRepo = $repository->createSharedChild(
                 $label,
@@ -635,7 +642,12 @@ class ShareCenter extends AJXP_Plugin{
                 // check that it's a child user
                 $userObject = $confDriver->createUserObject($userName);
             }else{
-                AuthService::createUser($userName, md5($httpVars["shared_pass"]));
+                if(ConfService::getAuthDriverImpl()->getOption("TRANSMIT_CLEAR_PASS")){
+                    $pass = $httpVars["shared_pass"];
+                }else{
+                    $pass = md5($httpVars["shared_pass"]);
+                }
+                AuthService::createUser($userName, $pass);
                 $userObject = $confDriver->createUserObject($userName);
                 $userObject->clearRights();
                 $userObject->setParent($loggedUser->id);

@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-model href="F:\VBox Machines\DebianShare\phing-grammar.rng"
+            type="application/xml"
+            schematypens="http://relaxng.org/ns/structure/1.0" ?>
+<project name="AjaXplorer" default="build">
+
+    <property file="build.properties"/>
+    <property name="build.source_folder" value="${build.working_folder}/source"/>
+    <property name="svn.local_folder" value="${build.working_folder}/svnwc"/>
+    <taskdef classname="lib.AjxpPluginDiscriminate" name="plugindiscriminate"/>
+
+
+    <target name="build" description="Main sequence">
+        <phingcall target="prepare"/>
+        <phingcall target="zip"/>
+        <phingcall target="deploy"/>
+        <phingcall target="clean"/>
+    </target>
+
+    <target name="deploy" description="Send package to FTP">
+        <phingcall target="ftp_deploy">
+            <property name="base_folder" value="${build.working_folder}/build"/>
+            <property name="package_toload" value="*.zip"/>
+        </phingcall>
+    </target>
+
+    <target name="svn_update" description="Checkout or update depending on working-copy presence.">
+        <if>
+            <available type="dir" file="${svn.local_folder}"/>
+            <then>
+                <svnupdate
+                        revision="HEAD"
+                        repositoryurl="${svn.repository_url}"
+                        todir="${svn.local_folder}"
+                />
+            </then>
+            <else>
+                <mkdir dir="${svn.local_folder}"/>
+                <svncheckout
+                        revision="HEAD"
+                        repositoryurl="${svn.repository_url}"
+                        todir="${svn.local_folder}"
+                />
+            </else>
+        </if>
+    </target>
+    <target name="svn_export" depends="svn_update" description="Export SVN data">
+        <if>
+            <not><available type="dir" file="${svn.local_folder}"/></not>
+            <then>
+                <phingcall target="svn_update"/>
+            </then>
+        </if>
+        <if>
+            <available type="dir" file="${build.source_folder}"/>
+            <then><delete dir="${build.source_folder}"/></then>
+        </if>
+        <svnexport
+                repositoryurl="${svn.local_folder}"
+                todir="${build.source_folder}"
+                revision=""
+                />
+        <svnlastrevision workingcopy="${svn.local_folder}" propertyname="SVN_LASTREVISION"/>
+    </target>
+
+    <target name="prepare" description="Checkout, discriminate foldes">
+        <phingcall target="svn_export"/>
+        <phingcall target="filter_plugins"/>
+    </target>
+
+    <target name="zip" description="Package as Zip archive">
+        <mkdir dir="${build.working_folder}/build" />
+        <tstamp/>
+        <property name="packaged_zip" value="ajaxplorer-${DSTAMP}-${SVN_LASTREVISION}.zip"/>
+        <zip
+                basedir="${build.source_folder}"
+                destfile="${build.working_folder}/build/${packaged_zip}"
+                includeemptydirs="true"
+                />
+        <phingcall target="build_external_plugins"/>
+    </target>
+
+    <target name="filter_plugins" description="Discriminate 'core' and 'ext' plugins">
+        <mkdir dir="${build.working_folder}/ext_plugins" />
+        <plugindiscriminate all="${build.source_folder}/plugins" ext="${build.working_folder}/ext_plugins"/>
+    </target>
+
+    <target name="build_external_plugins">
+        <foreach param="filename" absparam="absfilename" target="zip_plugin">
+            <fileset dir="${build.working_folder}/ext_plugins">
+                <include name="*.*"/>
+            </fileset>
+        </foreach>
+    </target>
+
+    <target name="zip_plugin" >
+        <tstamp/>
+        <property name="packaged_plugin" value="plugin-${filename}-${DSTAMP}.zip"/>
+        <zip
+                basedir="${absfilename}"
+                destfile="${build.working_folder}/build/${packaged_plugin}"
+                includeemptydirs="true"
+        />
+    </target>
+
+    <target name="clean" description="Clean all working folders">
+        <foreach list="${build.source_folder},${svn.local_folder},${build.working_folder}/build,${build.working_folder}/ext_plugins" param="filename" absparam="absfilename" target="delete_me">
+        </foreach>
+    </target>
+    <target name="delete_me">
+        <if>
+            <available file="${filename}"/>
+            <then>
+                <delete dir="${filename}"/>
+            </then>
+            <elseif>
+                <available file="${absfilename}"/>
+                <then>
+                    <delete file="${absfilename}"/>
+                </then>
+            </elseif>
+        </if>
+    </target>
+
+    <!-- GENERIC TASKS -->
+    <target name="ftp_deploy" description="Generic FTP deployment">
+        <ftpdeploy
+          host="${ftp.host}"
+          port="${ftp.port}"
+          username="${ftp.username}"
+          password="${ftp.password}"
+          passive="${ftp.passive}"
+          dir="${ftp.dir}">
+          <fileset dir="${base_folder}">
+              <include name="${package_toload}"/>
+          </fileset>
+        </ftpdeploy>
+        <echo message="Successfully sent ${package_toload} to ${ftp.host}"/>
+    </target>
+
+    <target name="lint" description="Check syntax of sources">
+        <phplint>
+            <fileset dir="${build.source_folder}">
+                <include name="**/*.php"/>
+            </fileset>
+        </phplint>
+    </target>
+
+</project>

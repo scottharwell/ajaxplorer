@@ -45,9 +45,9 @@ class ldapAuthDriver extends AbstractAuthDriver {
         if ($options["LDAP_USER"]) $this->ldapAdminUsername = $options["LDAP_USER"];
         if ($options["LDAP_PASSWORD"]) $this->ldapAdminPassword = $options["LDAP_PASSWORD"];
         if ($options["LDAP_DN"]) $this->ldapDN = $options["LDAP_DN"];
-        if ($options["LDAP_FILTER"]){
+        if (isSet($options["LDAP_FILTER"])){
             $this->ldapFilter = $options["LDAP_FILTER"];
-            if (!preg_match("/^\(.*\)$/", $this->ldapFilter)) {
+            if ($this->ldapFilter != "" &&  !preg_match("/^\(.*\)$/", $this->ldapFilter)) {
                 $this->ldapFilter = "(" . $this->ldapFilter . ")";
             }
         } else {
@@ -102,7 +102,8 @@ class ldapAuthDriver extends AbstractAuthDriver {
         if ($login == null){
             $filter = $this->ldapFilter;
         } else {
-            $filter = "(&" . $this->ldapFilter . "(" . $this->ldapUserAttr . "=" . $login . "))";
+            if($this->ldapFilter == "") $filter = "(" . $this->ldapUserAttr . "=" . $login . ")";
+            else  $filter = "(&" . $this->ldapFilter . "(" . $this->ldapUserAttr . "=" . $login . "))";
         }
         if(is_array($this->ldapDN)) {
                 $entries=array('count'=>0);
@@ -126,14 +127,21 @@ class ldapAuthDriver extends AbstractAuthDriver {
         $persons = array();
         unset($entries['count']); // remove 'count' entry
         foreach($entries as $id => $person){
-            $persons[$person[$this->ldapUserAttr][0]] = "XXX";
+            $login = $person[$this->ldapUserAttr][0];
+            if(AuthService::ignoreUserCase()) $login = strtolower($login);
+            $persons[$login] = "XXX";
         }
         return $persons;
     }
 
 	function userExists($login){
         $entries = $this->getUserEntries($login);
-		if(!is_array($entries) || strcmp($login, $entries[0][$this->ldapUserAttr][0]) != 0 ) return false;
+        if(!is_array($entries)) return false;
+        if(AuthService::ignoreUserCase() && strcasecmp($login, $entries[0][$this->ldapUserAttr][0]) != 0 ) {
+            return false;
+        }else if(strcmp($login, $entries[0][$this->ldapUserAttr][0]) != 0 ) {
+            return false;
+        }
 		return true;
     }
 
@@ -148,7 +156,7 @@ class ldapAuthDriver extends AbstractAuthDriver {
             }
             return false;
         } else {
-            AJXP_Logger::logAction("Ldap Password Check:No user $user_id found");
+            AJXP_Logger::logAction("Ldap Password Check:No user $login found");
             return false;
         }
     }
