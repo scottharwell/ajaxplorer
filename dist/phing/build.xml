@@ -20,6 +20,12 @@
     <target name="deploy" description="Send package to FTP">
         <phingcall target="ftp_deploy">
             <property name="base_folder" value="${build.working_folder}/build"/>
+            <property name="remote_folder" value="${ftp.dir}"/>
+            <property name="package_toload" value="*.zip"/>
+        </phingcall>
+        <phingcall target="ftp_deploy">
+            <property name="base_folder" value="${build.working_folder}/build/plugins"/>
+            <property name="remote_folder" value="${ftp.dir}/plugins"/>
             <property name="package_toload" value="*.zip"/>
         </phingcall>
     </target>
@@ -60,7 +66,6 @@
                 todir="${build.source_folder}"
                 revision=""
                 />
-        <svnlastrevision workingcopy="${svn.local_folder}" propertyname="SVN_LASTREVISION"/>
     </target>
 
     <target name="prepare" description="Checkout, discriminate foldes">
@@ -70,7 +75,9 @@
 
     <target name="zip" description="Package as Zip archive">
         <mkdir dir="${build.working_folder}/build" />
+        <mkdir dir="${build.working_folder}/build/plugins" />
         <tstamp/>
+        <svnlastrevision workingcopy="${svn.local_folder}" propertyname="SVN_LASTREVISION"/>
         <property name="packaged_zip" value="ajaxplorer-${DSTAMP}-${SVN_LASTREVISION}.zip"/>
         <zip
                 basedir="${build.source_folder}"
@@ -98,7 +105,7 @@
         <property name="packaged_plugin" value="plugin-${filename}-${DSTAMP}.zip"/>
         <zip
                 basedir="${absfilename}"
-                destfile="${build.working_folder}/build/${packaged_plugin}"
+                destfile="${build.working_folder}/build/plugins/${packaged_plugin}"
                 includeemptydirs="true"
         />
     </target>
@@ -130,7 +137,7 @@
           username="${ftp.username}"
           password="${ftp.password}"
           passive="${ftp.passive}"
-          dir="${ftp.dir}">
+          dir="${remote_folder}">
           <fileset dir="${base_folder}">
               <include name="${package_toload}"/>
           </fileset>

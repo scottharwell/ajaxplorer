@@ -84,9 +84,12 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                     $root = array_shift($splits);
                     if(count($splits)){
                         $child = $splits[0];
+                        if(strstr(urldecode($child), "#") !== false){
+                            list($child, $hash) = explode("#", urldecode($child));
+                        }
                         if(isSet($rootNodes[$root]["CHILDREN"][$child])){
                             AJXP_XMLWriter::header();
-                            call_user_func(array($this, $rootNodes[$root]["CHILDREN"][$child]["LIST"]), implode("/", $splits), $root);
+                            call_user_func(array($this, $rootNodes[$root]["CHILDREN"][$child]["LIST"]), implode("/", $splits), $root, $hash);
                             AJXP_XMLWriter::close();
                             return;
                         }
@@ -512,6 +515,38 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 				AJXP_XMLWriter::close();
 										
 			break;
+
+            case "save_user_preference":
+
+                if(!isSet($httpVars["user_id"]) || !AuthService::userExists($httpVars["user_id"]) ){
+                    throw new Exception($mess["ajxp_conf.61"]);
+                }
+                $userId = $httpVars["user_id"];
+                if($userId == $loggedUser->getId()){
+                    $userObject = $loggedUser;
+                }else{
+                    $confStorage = ConfService::getConfStorageImpl();
+                    $userObject = $confStorage->createUserObject($userId);
+                }
+                $i = 0;
+                while(isSet($httpVars["pref_name_".$i]) && isSet($httpVars["pref_value_".$i]))
+                {
+                    $prefName = AJXP_Utils::sanitize($httpVars["pref_name_".$i], AJXP_SANITIZE_ALPHANUM);
+                    $prefValue = AJXP_Utils::sanitize(SystemTextEncoding::magicDequote(($httpVars["pref_value_".$i])));
+                    if($prefName == "password") continue;
+                    if($prefName != "pending_folder" && $userObject == null){
+                        $i++;
+                        continue;
+                    }
+                    $userObject->setPref($prefName, $prefValue);
+                    $userObject->save("user");
+                    $i++;
+                }
+                AJXP_XMLWriter::header();
+                AJXP_XMLWriter::sendMessage("Succesfully saved user preference", null);
+                AJXP_XMLWriter::close();
+
+            break;
 	
 			case  "get_drivers_definition":
 				
@@ -1039,7 +1074,7 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 		}
 	}
 	
-	function listUsers(){
+	function listUsers($root, $child, $hashValue = null){
         $columns = '<columns switchGridMode="filelist" template_name="ajxp_conf.users">
         			<column messageId="ajxp_conf.6" attributeName="ajxp_label" sortType="String" defaultWidth="40%"/>
         			<column messageId="ajxp_conf.7" attributeName="isAdmin" sortType="String" defaultWidth="10%"/>
@@ -1057,7 +1092,16 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
         }
 		AJXP_XMLWriter::sendFilesListComponentConfig($columns);
 		if(!AuthService::usersEnabled()) return ;
-		$users = AuthService::listUsers();
+        $count = AuthService::authCountUsers();
+        $USER_PER_PAGE = 50;
+        if(empty($hashValue)) $hashValue = 1;
+        if(AuthService::authSupportsPagination() && $count > $USER_PER_PAGE){
+            $offset = ($hashValue - 1) * $USER_PER_PAGE;
+            AJXP_XMLWriter::renderPaginationData($count, $hashValue, ceil($count/$USER_PER_PAGE));
+            $users = AuthService::listUsers("", $offset, $USER_PER_PAGE);
+        }else{
+            $users = AuthService::listUsers();
+        }
 		$mess = ConfService::getMessages();
 		$repos = ConfService::getRepositoriesList();
 		$loggedUser = AuthService::getLoggedUser();		
@@ -1337,13 +1381,15 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 	
 	
 	function parseParameters(&$repDef, &$options, $userId = null){
-		
+
+        $replicationGroups = array();
 		foreach ($repDef as $key => $value)
 		{
 			$value = AJXP_Utils::sanitize(SystemTextEncoding::magicDequote($value));
 			if(strpos($key, "DRIVER_OPTION_")!== false
                 && strpos($key, "DRIVER_OPTION_")==0
                 && strpos($key, "ajxptype") === false
+                && strpos($key, "_replication") === false
                 && strpos($key, "_checkbox") === false){
 				if(isSet($repDef[$key."_ajxptype"])){
 					$type = $repDef[$key."_ajxptype"];
@@ -1369,6 +1415,11 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                     unset($repDef[$key."_checkbox"]);
                     if(!$checked) continue;
                 }
+                if(isSet($repDef[$key."_replication"])){
+                    $repKey = $repDef[$key."_replication"];
+                    if(!is_array($replicationGroups[$repKey])) $replicationGroups[$repKey] = array();
+                    $replicationGroups[$repKey][] = $key;
+                }
 				$options[substr($key, strlen("DRIVER_OPTION_"))] = $value;
 				unset($repDef[$key]);
 			}else{
@@ -1377,7 +1428,11 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 				}
 				$repDef[$key] = $value;		
 			}
-		}		
+		}
+        // DO SOMETHING WITH REPLICATED PARAMETERS?
+        if(count($replicationGroups)){
+
+        }
 	}
 	    
 }

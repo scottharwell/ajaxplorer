@@ -67,6 +67,12 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 					throw new AJXP_Exception("Cannot create recycle bin folder. Please check repository configuration or that your folder is writeable!");
 				}
 			}
+            $dataTemplate = $this->repository->getOption("DATA_TEMPLATE");
+            if(!empty($dataTemplate) && is_dir($dataTemplate) && !is_file($path."/.ajxp_template")){
+                $errs = array();$succ = array();
+                $this->dircopy($dataTemplate, $path, $succ, $errs, false, false);
+                touch($path."/.ajxp_template");
+            }
 		}else{
 			if(!is_dir($path)){
 				throw new AJXP_Exception("Cannot find base path for your repository! Please check the configuration!");
@@ -412,8 +418,13 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 			
 				$file = AJXP_Utils::decodeSecureMagic($httpVars["file"]);
 				$filename_new = AJXP_Utils::decodeSecureMagic($httpVars["filename_new"]);
+                $dest = null;
+                if(isSet($httpVars["dest"])){
+                    $dest = AJXP_Utils::decodeSecureMagic($httpVars["dest"]);
+                    $filename_new = "";
+                }
 				$this->filterUserSelectionToHidden(array($filename_new));
-				$this->rename($file, $filename_new);
+				$this->rename($file, $filename_new, $dest);
 				$logMessage= SystemTextEncoding::toUTF8($file)." $mess[41] ".SystemTextEncoding::toUTF8($filename_new);
 				$reloadContextNode = true;
 				$pendingSelection = $filename_new;
@@ -1294,7 +1305,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 		return $this->rename($filePath, $newFilename);
 	}
 	
-	function rename($filePath, $filename_new)
+	function rename($filePath, $filename_new, $dest = null)
 	{
 		$nom_fic=basename($filePath);
 		$mess = ConfService::getMessages();
@@ -1305,8 +1316,9 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 		{
 			throw new AJXP_Exception($mess[34]." ".$nom_fic." ".$mess[99]);
 		}
-		$new=dirname($old)."/".$filename_new;
-		if($filename_new=="")
+        if($dest == null) $new=dirname($old)."/".$filename_new;
+        else $new = $this->urlBase.$dest;
+		if($filename_new=="" && $dest == null)
 		{
 			throw new AJXP_Exception("$mess[37]");
 		}
@@ -1581,7 +1593,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 	// Syntaxis: [$number =] dircopy($sourcedirectory, $destinationdirectory [, $verbose]);
 	// Example: $num = dircopy('A:\dir1', 'B:\dir2', 1);
 
-	function dircopy($srcdir, $dstdir, &$errors, &$success, $verbose = false) 
+	function dircopy($srcdir, $dstdir, &$errors, &$success, $verbose = false, $convertSrcFile = true)
 	{
 		$num = 0;
 		//$verbose = true;
@@ -1599,8 +1611,9 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 						if(is_file($dstfile)) $ow = filemtime($srcfile) - filemtime($dstfile); else $ow = 1;
 						if($ow > 0) 
 						{
-							try { 
-								$tmpPath = call_user_func(array($this->wrapperClassName, "getRealFSReference"), $srcfile);
+							try {
+                                if($convertSrcFile) $tmpPath = call_user_func(array($this->wrapperClassName, "getRealFSReference"), $srcfile);
+                                else $tmpPath = $srcfile;
 								if($verbose) echo "Copying '$tmpPath' to '$dstfile'...";
 								copy($tmpPath, $dstfile);
 								$success[] = $srcfile;
@@ -1613,7 +1626,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 					else
 					{
 						if($verbose) echo "Dircopy $srcfile";
-						$num += $this->dircopy($srcfile, $dstfile, $errors, $success, $verbose);
+						$num += $this->dircopy($srcfile, $dstfile, $errors, $success, $verbose, $convertSrcFile);
 					}
 				}
 			}
@@ -1789,7 +1802,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
     
     
     /** The publiclet URL making */
-    function makePublicletOptions($filePath, $password, $expire, $repository)
+    function makePublicletOptions($filePath, $password, $expire, $downloadlimit, $repository)
     {
     	$data = array(
             "DRIVER"=>$repository->getAccessType(),
@@ -1797,6 +1810,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
             "FILE_PATH"=>$filePath,
             "ACTION"=>"download",
             "EXPIRE_TIME"=>$expire ? (time() + $expire * 86400) : 0,
+            "DOWNLOAD_LIMIT"=>$downloadlimit ? $downloadlimit : 0,
             "PASSWORD"=>$password
         );
         return $data;

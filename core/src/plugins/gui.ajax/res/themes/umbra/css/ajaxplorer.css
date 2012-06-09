@@ -671,6 +671,21 @@ div.SF_label{
 	_width:54% !important; /*IE*/
 }
 
+div.SF_element.SF_largeLabel > div.SF_label{
+    width: 57% !important;
+   	_width:54% !important; /*IE*/
+}
+
+div.SF_element.SF_largeLabel > .SF_input{
+    width: 39% !important;
+}
+
+div.SF_element.SF_largeLabel > input.SF_input.SF_number,
+input.SF_input.SF_number{
+    width: 30px !important;
+    text-align: right;
+}
+
 .SF_box{
    width: 20px !important;
 }
@@ -1005,6 +1020,7 @@ a.carousel-control img{
     -webkit-box-shadow:0 0px 5px #bbb;
     -moz-box-shadow:0 0px 5px #bbb;
     box-shadow:0 0px 5px #bbb;
+    clear:left;
 }
 
 #locationBar{
