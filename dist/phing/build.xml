@@ -5,30 +5,87 @@
 <project name="AjaXplorer" default="build">
 
     <property file="build.properties"/>
+    <property name="env" value="testing"/>
+    <property name="skip_deploy" value="false"/>
+    <property name="build_channel" value="dev"/>
     <property name="build.source_folder" value="${build.working_folder}/source"/>
     <property name="svn.local_folder" value="${build.working_folder}/svnwc"/>
     <taskdef classname="lib.AjxpPluginDiscriminate" name="plugindiscriminate"/>
+    <taskdef classname="lib.AjxpSvnSummarizeTask" name="svn_summarize"/>
+    <taskdef classname="lib.AjxpParseSvnSummarize" name="parse_svn_summarize"/>
 
 
     <target name="build" description="Main sequence">
-        <phingcall target="prepare"/>
+        <if>
+        	<equals arg1="${env}" arg2="release"/>        	
+        	<then>
+		        <phingcall target="prepare_upgrade"/>
+		        <phingcall target="zip_upgrade"/>
+		        <if>
+		        	<not><equals arg1="${skip_deploy}" arg2="true"/></not>
+		        	<then>
+		        		<phingcall target="deploy_upgrade"/>
+		        	</then>
+		        </if>
+        	</then>
+        	<else>
+        	     <phingcall target="prepare"/>
+        	</else>
+        </if>
         <phingcall target="zip"/>
-        <phingcall target="deploy"/>
-        <phingcall target="clean"/>
+        <if>
+        	<not><equals arg1="${skip_deploy}" arg2="true"/></not>
+        	<then>
+		        <phingcall target="deploy"/>
+		        <phingcall target="clean"/>
+		    </then>
+		</if>
+    </target>
+    
+    <target name="tag_version" description="Tag svn with the version, and upgrade version number for future builds to next_version">
+	    <svncopy
+	       message="${version} tag"	
+		   username="${svn.username}"
+		   password="${svn.password}"
+		   force="true"
+		   nocache="true"
+		   repositoryurl="${svn.repository_url}${svn.trunk_root}"
+		   todir="${svn.repository_url}${svn.tags}/ajaxplorer-core-${version}"/>
+		<reflexive>
+		    <fileset dir=".">
+		        <include pattern="build.properties" />
+		    </fileset>
+		    <filterchain>
+		        <replaceregexp>
+		            <regexp pattern="${version}" replace="${next_version}"/>
+		        </replaceregexp>
+		    </filterchain>
+		</reflexive>
+    </target>
+
+    <target name="usage" description="Describe this script usage">
+        <echo message="For releasing and deploying : phing -Denv=release -Dskip_deploy=false -Dprevious_revision=2861 -Dprevious_version=4.0.4 -Dnew_version=4.2.0"/>
+        <echo message="For tagging : phing tag -Dversion=4.2.0 -Dnext_version=4.3.0"/>
     </target>
 
     <target name="deploy" description="Send package to FTP">
         <phingcall target="ftp_deploy">
             <property name="base_folder" value="${build.working_folder}/build"/>
             <property name="remote_folder" value="${ftp.dir}"/>
-            <property name="package_toload" value="*.zip"/>
         </phingcall>
         <phingcall target="ftp_deploy">
             <property name="base_folder" value="${build.working_folder}/build/plugins"/>
             <property name="remote_folder" value="${ftp.dir}/plugins"/>
-            <property name="package_toload" value="*.zip"/>
         </phingcall>
     </target>
+    
+    <target name="deploy_upgrade" description="Send package to FTP">
+        <phingcall target="ftp_deploy">
+            <property name="base_folder" value="${build.working_folder}/build/upgrade"/>
+            <property name="remote_folder" value="${ftp.update_dir}"/>
+        </phingcall>
+    </target>
+        
 
     <target name="svn_update" description="Checkout or update depending on working-copy presence.">
         <if>
@@ -36,7 +93,7 @@
             <then>
                 <svnupdate
                         revision="HEAD"
-                        repositoryurl="${svn.repository_url}"
+                        repositoryurl="${svn.repository_url}/${svn.trunk_root}"
                         todir="${svn.local_folder}"
                 />
             </then>
@@ -44,13 +101,14 @@
                 <mkdir dir="${svn.local_folder}"/>
                 <svncheckout
                         revision="HEAD"
-                        repositoryurl="${svn.repository_url}"
+                        repositoryurl="${svn.repository_url}/${svn.trunk_root}"
                         todir="${svn.local_folder}"
                 />
             </else>
         </if>
     </target>
-    <target name="svn_export" depends="svn_update" description="Export SVN data">
+
+    <target name="prepare" description="Export SVN, prepare VERSION and discriminate plugins">
         <if>
             <not><available type="dir" file="${svn.local_folder}"/></not>
             <then>
@@ -58,38 +116,135 @@
             </then>
         </if>
         <if>
-            <available type="dir" file="${build.source_folder}"/>
-            <then><delete dir="${build.source_folder}"/></then>
+            <not><available type="dir" file="${build.source_folder}"/></not>
+            <then><mkdir dir="${build.source_folder}"/></then>
         </if>
+        <tstamp>
+            <format property="VERSION_DATE" pattern="%Y-%m-%d"/>
+        </tstamp>
+        <svnlastrevision workingcopy="${svn.local_folder}" propertyname="SVN_LASTREVISION"/>
+        <if>
+        	<equals arg1="${env}" arg2="testing"/>        	
+        	<then>
+        		<property name="package_name" value="ajaxplorer-${DSTAMP}-${SVN_LASTREVISION}"/>
+        	</then>
+        	<else>
+        		<property name="package_name" value="ajaxplorer-core-${new_version}"/>
+        	</else>
+        </if>
+        <property name="INNER_DIRECTORY" value="${build.source_folder}/${package_name}"/>
+        <if>
+            <available type="dir" file="${INNER_DIRECTORY}"/>
+            <then>
+                <delete dir="${INNER_DIRECTORY}"/>
+            </then>
+        </if>
+        <!-- EXPORT SVN -->
         <svnexport
                 repositoryurl="${svn.local_folder}"
-                todir="${build.source_folder}"
+                todir="${INNER_DIRECTORY}"
                 revision=""
                 />
+        <!-- PREPARE VERSION FILE -->
+        <phingcall target="replace_variables">
+        	<property name="passed_directory" value="${INNER_DIRECTORY}"/>
+        </phingcall>
+        
+        <!-- DISCRIMINATE PLUGINS -->
+        <mkdir dir="${build.working_folder}/ext_plugins" />
+        <plugindiscriminate all="${INNER_DIRECTORY}/plugins" ext="${build.working_folder}/ext_plugins"/>		
     </target>
-
-    <target name="prepare" description="Checkout, discriminate foldes">
-        <phingcall target="svn_export"/>
-        <phingcall target="filter_plugins"/>
+    
+    <target name="prepare_upgrade" description="Building upgrade package" depends="prepare">
+        <if>
+            <not><available type="dir" file="${build.working_folder}/upgrade"/></not>
+            <then><mkdir dir="${build.working_folder}/upgrade"/></then>
+        </if>
+    	<property name="upgrade_export" value="${build.working_folder}/upgrade/export/ajaxplorer-core-upgrade-${previous_version}-${new_version}"/>
+    	<mkdir dir="${upgrade_export}"/>
+    	<mkdir dir="${upgrade_export}/UPGRADE"/>
+    	<svn_summarize
+    	 revision1="${previous_revision}"
+    	 revision2="${SVN_LASTREVISION}"
+    	 summarizeFile="${build.working_folder}/upgrade/svn_summarize"
+    	 repositoryurl="${svn.local_folder}"
+    	 />
+    	 <parse_svn_summarize
+    	 	summarizeFile="${build.working_folder}/upgrade/svn_summarize"
+    	 	sourceDir="${svn.local_folder}"
+    	 	upgradeDir="${upgrade_export}"
+    	 	extPluginsFolder="${build.working_folder}/ext_plugins"
+    	 />
+        <phingcall target="replace_variables">
+        	<property name="passed_directory" value="${upgrade_export}"/>
+        </phingcall>
+        
+        <!-- COPY RELEASE NOTE -->
+		<copy file="${upgrade_export}/conf/RELEASE_NOTE" toFile="${upgrade_export}/UPGRADE/NOTE"/>
+		
+		<!-- ADDITIONAL UPGRADE SCRIPT -->
+		<mkdir dir="${build.working_folder}/upgrade/additional_scripts"/>
+        <svncheckout
+                revision="HEAD"
+                repositoryurl="${svn.repository_url}${svn.upgrade_scripts}"
+                todir="${build.working_folder}/upgrade/additional_scripts"
+        />        
+		<if>
+			<available type="file" file="${build.working_folder}/upgrade/additional_scripts/${new_version}.php"/>
+			<then>
+				<copy file="${build.working_folder}/upgrade/additional_scripts/${new_version}.php" toFile="${upgrade_export}/UPGRADE/PHP-SCRIPT"/>
+			</then>
+		</if>
+		
     </target>
-
+    
     <target name="zip" description="Package as Zip archive">
         <mkdir dir="${build.working_folder}/build" />
         <mkdir dir="${build.working_folder}/build/plugins" />
         <tstamp/>
         <svnlastrevision workingcopy="${svn.local_folder}" propertyname="SVN_LASTREVISION"/>
-        <property name="packaged_zip" value="ajaxplorer-${DSTAMP}-${SVN_LASTREVISION}.zip"/>
+        <if>
+        	<equals arg1="${env}" arg2="testing"/>        	
+        	<then>
+        		<property name="package_name" value="ajaxplorer-${DSTAMP}-${SVN_LASTREVISION}"/>
+        	</then>
+        	<else>
+        		<property name="package_name" value="ajaxplorer-core-${new_version}"/>
+        	</else>
+        </if>        
+        <property name="packaged_zip" value="${package_name}.zip"/>
+        <property name="packaged_tar" value="${package_name}.tar.gz"/>
         <zip
                 basedir="${build.source_folder}"
                 destfile="${build.working_folder}/build/${packaged_zip}"
                 includeemptydirs="true"
                 />
+        <tar
+                basedir="${build.source_folder}"
+                destfile="${build.working_folder}/build/${packaged_tar}"
+                includeemptydirs="true"
+                compression="gzip"
+            />
         <phingcall target="build_external_plugins"/>
+        <if>
+        	<not><equals arg1="${env}" arg2="testing"/></not>
+        	<then>
+        		<phingcall target="linux_packages">
+        			<property name="packaged_zip" value="${packaged_zip}"/>
+        		</phingcall>
+        	</then>
+        </if>
     </target>
-
-    <target name="filter_plugins" description="Discriminate 'core' and 'ext' plugins">
-        <mkdir dir="${build.working_folder}/ext_plugins" />
-        <plugindiscriminate all="${build.source_folder}/plugins" ext="${build.working_folder}/ext_plugins"/>
+    
+    <target name="zip_upgrade" description="Packaging upgrade">
+        <mkdir dir="${build.working_folder}/build" />
+        <mkdir dir="${build.working_folder}/build/upgrade" />
+        <property name="packaged_zip" value="ajaxplorer-core-upgrade-${previous_version}-${new_version}.zip"/>
+        <zip
+                basedir="${build.working_folder}/upgrade/export/"
+                destfile="${build.working_folder}/build/upgrade/${packaged_zip}"
+                includeemptydirs="true"
+                />
     </target>
 
     <target name="build_external_plugins">
@@ -103,15 +258,147 @@
     <target name="zip_plugin" >
         <tstamp/>
         <property name="packaged_plugin" value="plugin-${filename}-${DSTAMP}.zip"/>
+        <property name="packaged_plugin_tar" value="plugin-${filename}-${DSTAMP}.tar.gz"/>
         <zip
                 basedir="${absfilename}"
                 destfile="${build.working_folder}/build/plugins/${packaged_plugin}"
                 includeemptydirs="true"
         />
+        <tar
+                basedir="${absfilename}"
+                destfile="${build.working_folder}/build/plugins/${packaged_plugin_tar}"
+                includeemptydirs="true"
+                compression="gzip"
+        />
     </target>
 
+    <target name="linux_packages" description="Trigger RPM and Debian packages builds, release ZIP only.">
+    
+		<mkdir dir="${build.working_folder}/dist"/>
+		<mkdir dir="${build.working_folder}/rpm"/>
+		<mkdir dir="${build.working_folder}/deb"/>
+		<mkdir dir="${build.working_folder}/deb/builddeb"/>
+        <svncheckout
+                revision="HEAD"
+                repositoryurl="${svn.repository_url}${svn.dist_root}"
+                todir="${build.working_folder}/dist"
+        />
+        
+		<!-- TOKEN REPLACE THE RPM SPEC FILE -->
+        <copy file="${build.working_folder}/dist/rpm/ajaxplorer.spec.tpl" toFile="${build.working_folder}/rpm/ajaxplorer.spec">
+            <filterchain>
+                <replacetokens begintoken="##" endtoken="##">
+                    <token key="VERSION_NUMBER" value="${build.version}"/>
+                    <token key="CHANNEL" value="${build_channel}"/>
+                </replacetokens>
+            </filterchain>        
+        </copy>
+        <copy file="${packaged_zip}" toDir="${rpm.build_folder}/SOURCES" overwrite="true"/>
+		<copy file="${build.working_folder}/dist/rpm/ajaxplorer.conf" toDir="${rpm.build_folder}/SOURCES" overwrite="true"/>
+		<exec command="rpmbuild --sign -ba ${build.working_folder}/dist/rpm/ajaxplorer.spec"
+			passthru="true"/>
+		<copy overwrite="true" 
+			file="${rpm.build_folder}/RPMS/noarch/ajaxplorer-${build.version}-1.noarch.rpm" 
+			toDir="${build.working_folder}/build"/>
+		<copy overwrite="true" 
+			file="${rpm.build_folder}/SRPMS/ajaxplorer-${build.version}-1.src.rpm" 
+			toDir="${build.working_folder}/build"/>
+		
+		<!-- PREPARE DEBIAN BUILD -->
+		<copy toDir="${build.working_folder}/deb/builddeb" overwrite="true">
+			<fileset dir="${build.working_folder}/dist/deb">
+				<include name="**/*"/>
+			</fileset>
+			<fileset dir="${build.source_folder}/">
+				<include name="**/*"/>
+			</fileset>
+		</copy>
+		
+		<!-- UPGRADE Makefile -->
+        <reflexive>
+        	<fileset dir="${build.working_folder}/deb/builddeb">
+        		<include pattern="Makefile"/>
+        	</fileset>
+            <filterchain>
+                <replacetokens begintoken="##" endtoken="##">
+                    <token key="KEY_ID" value="${build.signing_key_id}"/>
+                </replacetokens>
+            </filterchain>
+        </reflexive>
+		
+		<!-- UPGRADE CHANGELOG -->
+		<tstamp><format property="FORMATTED_DATE" pattern="%a, %d %b %Y %H:%M:%S %z"/></tstamp>
+        <reflexive>
+        	<fileset dir="${build.working_folder}/deb/builddeb/debian">
+        		<include pattern="changelog.tpl"/>
+        	</fileset>
+            <filterchain>
+                <replacetokens begintoken="##" endtoken="##">
+                    <token key="VERSION_NUMBER" value="${build.version}"/>
+                    <token key="FORMATTED_DATE" value="${FORMATTED_DATE}"/>
+                </replacetokens>
+            </filterchain>
+        </reflexive>
+        <loadfile property="previous_changelog" file="${build.working_folder}/deb/builddeb/debian/changelog"/>
+        <append destFile="${build.working_folder}/deb/builddeb/debian/changelog.tpl" text="${previous_changelog}"/>
+		<move file="${build.working_folder}/deb/builddeb/debian/changelog.tpl" tofile="${build.working_folder}/deb/builddeb/debian/changelog" overwrite="true"/>
+		
+		<exec command="make builddeb" dir="${build.working_folder}/deb/builddeb" passthru="true"/>
+		
+		<copy toDir="${build.working_folder}/build">
+			<fileset dir="${build.working_folder}/deb">
+				<include name="ajaxplorer_*.deb"/>
+			</fileset>
+		</copy>
+
+		
+		<!-- NOW DEPLOY, TO LOCAL REPO THEN TO REMOTE COPY -->
+		<if>
+			<not><equals arg1="${skip_deploy}" arg2="true"/></not>
+			<then>
+		
+				<!-- TODO: SHOULD REPORT BACK THE CHANGELOG AND COMMIT -->
+				
+				
+				<!-- UPDATE APT REPOSITORY -->		
+				<exec command="reprepro --ask-passphrase -Vb . include squeeze ${build.working_folder}/deb/ajaxplorer_${build.version}_amd64.changes" dir="${build.repositories_folder}/apt/" passthru="true"/>
+		
+				<if>
+					<eq arg1="${build_channel}" arg2="stable"/>
+					<then>
+						<!-- UPDATE EL6 RPM REPOSITORY -->		
+						<copy file="${build.working_folder}/build/ajaxplorer-${build.version}-1.noarch.rpm" toDir="${build.repositories_folder}/el6/ajaxplorer-stable/"/>
+						<exec command="createrepo ." dir="${build.repositories_folder}/el6/ajaxplorer-stable/" passthru="true"/>
+					</then>
+					<else>
+						<!-- UPDATE EL6 RPM REPOSITORY -->		
+						<copy file="${build.working_folder}/build/ajaxplorer-${build.version}-1.noarch.rpm" toDir="${build.repositories_folder}/el6/ajaxplorer-testing/"/>
+						<exec command="createrepo ." dir="${build.repositories_folder}/el6/ajaxplorer-testing/" passthru="true"/>
+					</else>
+				</if>
+		
+				<!-- UPDATE EL6 SOURCES REPOSITORY -->		
+				<copy file="${build.working_folder}/build/ajaxplorer-${build.version}-1.src.rpm" toDir="${build.repositories_folder}/el6/ajaxplorer-sources/"/>
+				<exec command="createrepo ." dir="${build.repositories_folder}/el6/ajaxplorer-sources/" passthru="true"/>
+		
+		
+				<!-- SYNCHRONIZE -->
+				<scp 
+					username="${repository_machine.user}" 
+					password="${repository_machine.password}"
+					host="${repository_machine.host}" 
+					todir="${repository_machine.folder}">
+				    <fileset dir="${build.repositories_folder}">
+				        <include name="**/*" />
+				    </fileset>
+				</scp>					
+			</then>
+		</if>
+		
+    </target>
+    
     <target name="clean" description="Clean all working folders">
-        <foreach list="${build.source_folder},${svn.local_folder},${build.working_folder}/build,${build.working_folder}/ext_plugins" param="filename" absparam="absfilename" target="delete_me">
+        <foreach list="${build.source_folder},${svn.local_folder},${build.working_folder}/build,${build.working_folder}/ext_plugins,${build.working_folder}/upgrade,${build.working_folder}/dist,${build.working_folder}/deb,${build.working_folder}/rpm" param="filename" absparam="absfilename" target="delete_me">
         </foreach>
     </target>
     <target name="delete_me">
@@ -130,6 +417,23 @@
     </target>
 
     <!-- GENERIC TASKS -->
+    
+    <target name="replace_variables" description="Replace version, revision number, etc in files">
+        <reflexive>
+        	<fileset dir="${passed_directory}">
+        		<include pattern="conf/VERSION"/>
+        		<include pattern="conf/RELEASE_NOTE"/>
+        	</fileset>
+            <filterchain>
+                <replacetokens begintoken="##" endtoken="##">
+                    <token key="VERSION_NUMBER" value="${build.version}"/>
+                    <token key="VERSION_DATE" value="${VERSION_DATE}"/>
+                    <token key="REVISION" value="${SVN_LASTREVISION}"/>
+                </replacetokens>
+            </filterchain>        	
+        </reflexive>    
+    </target>    
+    
     <target name="ftp_deploy" description="Generic FTP deployment">
         <ftpdeploy
           host="${ftp.host}"
@@ -139,10 +443,11 @@
           passive="${ftp.passive}"
           dir="${remote_folder}">
           <fileset dir="${base_folder}">
-              <include name="${package_toload}"/>
+              <include name="*.zip"/>
+              <include name="*.tar.gz"/>
           </fileset>
         </ftpdeploy>
-        <echo message="Successfully sent ${package_toload} to ${ftp.host}"/>
+        <echo message="Successfully sent zip and tars from ${base_folder} to ${ftp.host}/${remote_folder}"/>
     </target>
 
     <target name="lint" description="Check syntax of sources">

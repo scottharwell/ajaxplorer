@@ -1,31 +1,37 @@
 %define ajaxplorerdir %{_datadir}/ajaxplorer
 Name: ajaxplorer
-Version:  4.0.0
+Version:  4.2.0
 Release:  1%{?dist}
-Summary: PHP rich-client browser for managing files on a web server
+Summary: Build your own box with AjaXplorer : web RIA, mobile applications, desktop sync
 
 Group: Applications/Publishing
 License: AGPL
-URL: http://www.ajaxplorer.info
-Source0: http://sourceforge.net/projects/ajaxplorer/files/ajaxplorer/%{version}/ajaxplorer-core-%{version}.zip
+Vendor: Abstrium SAS
+URL: http://ajaxplorer.info/
+Source0: http://sourceforge.net/projects/ajaxplorer/files/ajaxplorer/stable-channel/%{version}/ajaxplorer-core-%{version}.zip
 Source1: %{name}.conf
-Patch0: ajaxplorer-paths.patch
 
 BuildArch: noarch
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 Requires: php php-xml php-gd
-#Requires: php-mcrypt
+Requires: php-mcrypt
 
 %description
-AjaXplorer is a PHP rich-client browser for managing files on a web server without FTP.
- Implements usual file actions, online zip browsing, text files edition and images preview.
- Users management system and multi-languages. 
+AjaXplorer is a PHP-based browser for managing files on a web server without FTP. Fully loaded
+ with file formats preview, extended sharing, multidevice support and access control management
+ it is the perfect tool to replace (drop)box and alikes in the enterprise.
 
 %prep
 
 %setup -q -n %{name}-core-%{version}
 
-%patch0 -p1 -b .paths
+sed -i 's/"zip"/"rpm"/g' base.conf.php
+sed -i 's/AJXP_INSTALL_PATH."\/conf"/"\/etc\/ajaxplorer"/g' base.conf.php
+
+sed -i 's/AJXP_DATA_PATH."\/cache"/"\/var\/cache\/ajaxplorer"/g' conf/bootstrap_context.php
+sed -i 's/AJXP_INSTALL_PATH."\/data\/cache"/"\/var\/cache\/ajaxplorer"/g' conf/bootstrap_context.php
+sed -i 's/AJXP_INSTALL_PATH."\/data"/"\/var\/lib\/ajaxplorer"/g' conf/bootstrap_context.php
+sed -i 's/\/\/ define("AJXP_FORCE_LOGPATH/define("AJXP_FORCE_LOGPATH/g' conf/bootstrap_context.php
 
 %build
 
@@ -72,6 +78,10 @@ rm -rf %{buildroot}
 %{_localstatedir}/log/%{name}/*
 
 %changelog
+* Wed Jun 27 2012 Charles du Jeu <charles@ajaxplorer.info> - 4.2.0-1
+- Update spec file, integrate in the phing automated process
+- Replace the patch by sed commands (more line changes proof)
+
 * Sun Dec 18 2011 Mathieu Baudier <mbaudier@argeo.org> - 4.0.0-1
 - AjaXplorer v4 release
 

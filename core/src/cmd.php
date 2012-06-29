@@ -51,7 +51,7 @@ $optArgs = array();
 $options = array();
 $regex = '/^-(-?)([a-zA-z0-9_]*)=(.*)/';
 foreach ($argv as $key => $argument){
-    echo("$key => $argument \n");
+    //echo("$key => $argument \n");
 	if(preg_match($regex, $argument, $matches)){
 		if($matches[1] == "-"){
 			$optArgs[trim($matches[2])] = SystemTextEncoding::toUTF8(trim($matches[3]));
@@ -88,7 +88,7 @@ if(strpos($optRepoId,",") !== false){
     $nextRepositories = implode(",", $nextRepositories);
 }
 
-echo("REPOSITORY : ".$optRepoId." USER : ".$optUser."\n");
+//echo("REPOSITORY : ".$optRepoId." USER : ".$optUser."\n");
 
 $optDetectUser = $options["detect_user"] OR false;
 $detectedUser = false;
@@ -206,8 +206,8 @@ if($xmlResult !== false && $xmlResult != ""){
 	AJXP_XMLWriter::requireAuth();
 	AJXP_XMLWriter::close();
 }
-echo("NEXT REPO ".$nextRepositories." (".$options["r"].")\n");
-echo("NEXT USERS ".$nextUsers." ( ".$originalOptUser." )\n");
+//echo("NEXT REPO ".$nextRepositories." (".$options["r"].")\n");
+//echo("NEXT USERS ".$nextUsers." ( ".$originalOptUser." )\n");
 if(!empty($nextUsers) || !empty($nextRepositories)){
 
     if(!empty($nextUsers)){
