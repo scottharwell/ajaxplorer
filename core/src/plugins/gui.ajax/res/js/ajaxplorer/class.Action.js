@@ -56,6 +56,7 @@ Class.create("Action", {
 			selection:true,
 			dir:false,
 			allowedMimes:$A([]),
+            evalMetadata:'',
 			root:true,
 			inZip:true,
 			recycle:false,
@@ -72,7 +73,8 @@ Class.create("Action", {
 			file:true,
 			recycle:false,
 			behaviour:'disabled',
-			allowedMimes:$A([]),			
+			allowedMimes:$A([]),
+            evalMetadata:'',
 			unique:true,
 			multipleOnly:false
 			}, arguments[2] || { });
@@ -270,6 +272,15 @@ Class.create("Action", {
 			if(selectionContext.behaviour == 'hidden') this.hide();
 			else this.disable();
 		}
+        if(selectionContext.evalMetadata && userSelection && userSelection.isUnique()){
+            var metadata = userSelection.getUniqueNode().getMetadata();
+            var result = eval(selectionContext.evalMetadata);
+            if(!result){
+                if(selectionContext.behaviour == 'hidden') this.hide();
+             	else this.disable();
+                return;
+            }
+        }
 		if(selectionContext.unique && !bUnique){
 			return this.disable();
 		}
@@ -283,8 +294,8 @@ Class.create("Action", {
 		if(!selectionContext.recycle && bRecycle){
 			return this.disable();
 		}
-		if((selectionContext.allowedMimes.size() && userSelection && !userSelection.hasMime(selectionContext.allowedMimes) && !selectionContext.allowedMimes.include('*')) 
-			&& !(selectionContext.dir && bDir)){
+		if(selectionContext.allowedMimes.size() && userSelection  && !selectionContext.allowedMimes.include('*')
+            &&  !userSelection.hasMime(selectionContext.allowedMimes)){
 			if(selectionContext.behaviour == 'hidden') return this.hide();
 			else return this.disable();
 		}

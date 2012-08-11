@@ -102,6 +102,7 @@ class AbstractAuthDriver extends AJXP_Plugin {
 				if($userObject == null || $userObject->getId() == "guest"){
 					header("Content-Type:text/plain");
 					print "SUCCESS";
+                    break;
 				}
 				$oldPass = $httpVars["old_pass"];
 				$newPass = $httpVars["new_pass"];
@@ -109,12 +110,14 @@ class AbstractAuthDriver extends AJXP_Plugin {
 				if(strlen($newPass) < ConfService::getCoreConf("PASSWORD_MINLENGTH", "auth")){
 					header("Content-Type:text/plain");
 					print "PASS_ERROR";
+                    break;
 				}
 				if(AuthService::checkPassword($userObject->getId(), $oldPass, false, $passSeed)){
 					AuthService::updatePassword($userObject->getId(), $newPass);
 				}else{
 					header("Content-Type:text/plain");
 					print "PASS_ERROR";
+                    break;
 				}
 				header("Content-Type:text/plain");
 				print "SUCCESS";
@@ -209,8 +212,8 @@ class AbstractAuthDriver extends AJXP_Plugin {
     function supportsUsersPagination(){
         return false;
     }
-    function listUsersPaginated($regexp, $offset, $limit){
-        return $this->listUsers();
+    function listUsersPaginated($baseGroup = "/", $regexp, $offset, $limit){
+        return $this->listUsers($baseGroup);
     }
     function getUsersCount(){
         return -1;
@@ -219,7 +222,7 @@ class AbstractAuthDriver extends AJXP_Plugin {
     /**
      * @return Array
      */
-	function listUsers(){}
+	function listUsers($baseGroup = "/"){}
     /**
      * @param $login
      * @return boolean

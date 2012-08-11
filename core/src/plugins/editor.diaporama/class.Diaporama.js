@@ -69,6 +69,7 @@ Class.create("Diaporama", AbstractEditor, {
 		this.fitToScreenButton = this.actions.get('fitToScreenButton');
 		
 		this.imgTag = this.element.down('img[id="mainImage"]');
+        this.imgTag.hide();
 		this.imgBorder = this.element.down('div[id="imageBorder"]');
 		this.imgContainer = this.element.down('div[id="imageContainer"]');
 		this.zoomInput = this.actionBar.down('input[id="zoomValue"]');
@@ -485,7 +486,23 @@ Class.create("Diaporama", AbstractEditor, {
     },
 	
 	updateImage : function(){
-		var dimObject = this.sizes.get(this.currentFile);
+
+        var node = this.nodes.get(this.currentFile);
+        if(node.getMetadata().get("image_dimensions_thumb")){
+            var sizeLoader = new Image();
+            var tmpThis = this;
+            sizeLoader.onload = function(){
+                node.getMetadata().set("image_width", this.width);
+                node.getMetadata().set("image_height", this.height);
+                node.getMetadata().set("image_dimensions_thumb", false);
+                tmpThis.sizes.set(tmpThis.currentFile, {width:this.width, height: this.height});
+                tmpThis.updateImage();
+            };
+            sizeLoader.src = this.baseUrl + encodeURIComponent(this.currentFile);
+            return;
+        }
+
+        var dimObject = this.sizes.get(this.currentFile);
 		this.crtHeight = dimObject.height;
 		this.crtWidth = dimObject.width;
 		if(this.crtWidth){
@@ -500,8 +517,9 @@ Class.create("Diaporama", AbstractEditor, {
 				this.crtHeight = this.imgTag.getHeight();
 				this.crtRatio = this.crtHeight / this.crtWidth;
 			}
+            this.imgTag.show();
 		}.bind(this), from:1.0,to:0, duration:0.3});
-        
+
         this.updateInfoPanel();
 	},
 
@@ -617,14 +635,34 @@ Class.create("Diaporama", AbstractEditor, {
             border:0,
             align:"absmiddle"
         });
+        if(!parseInt(ajxpNode.getMetadata().get("image_width"))){
+            var imgObject = new Image();
+            imgObject.onload = function(){
+                img.DIMENSIONS_LOADING = false;
+                ajxpNode.getMetadata().set("image_dimensions_thumb", true);
+                ajxpNode.getMetadata().set("image_width", this.width);
+                ajxpNode.getMetadata().set("image_height", this.height);
+            }
+            imgObject.onerror = function(){
+                img.DIMENSIONS_LOADING = false;
+            };
+            img.DIMENSIONS_LOADING = true;
+            imgObject.src = Diaporama.prototype.getThumbnailSource(ajxpNode);
+        }
 		var div = new Element('div');
 		div.insert(img);
-		div.resizePreviewElement = function(dimensionObject){			
-			var imgDim = {
-				width:parseInt(ajxpNode.getMetadata().get("image_width")), 
-				height:parseInt(ajxpNode.getMetadata().get("image_height"))
-			};
-			var styleObj = fitRectangleToDimension(imgDim, dimensionObject);
+		div.resizePreviewElement = function(dimensionObject){
+            var styleObj;
+            if(!parseInt(ajxpNode.getMetadata().get("image_width"))){
+                styleObj = fitRectangleToDimension({width:50,height:50}, dimensionObject);
+                if(img.DIMENSIONS_LOADING) window.setTimeout(function(){ div.resizePreviewElement(dimensionObject); }, 1000);
+            }else{
+                var imgDim = {
+                    width:parseInt(ajxpNode.getMetadata().get("image_width")),
+                    height:parseInt(ajxpNode.getMetadata().get("image_height"))
+                };
+                styleObj = fitRectangleToDimension(imgDim, dimensionObject);
+            }
 			img.setStyle(styleObj);
 			div.setStyle({
 				height:styleObj.height, 

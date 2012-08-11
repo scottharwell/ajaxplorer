@@ -192,7 +192,15 @@ class AJXP_XMLWriter
 		if(ConfService::getConf("SERVER_DEBUG")){
 			$message = "$message in $fichier (l.$ligne)";
 		}
-		AJXP_Logger::logAction("error", array("message" => $message));
+        try{
+            AJXP_Logger::logAction("error", array("message" => $message));
+        }catch(Exception $e){
+            // This will probably trigger a double exception!
+            echo "<pre>Error in error";
+            debug_print_backtrace();
+            echo "</pre>";
+            die("Recursive exception. Original error was : ".$message. " in $fichier , line $ligne");
+        }
 		if(!headers_sent()) AJXP_XMLWriter::header();
 		AJXP_XMLWriter::sendMessage(null, SystemTextEncoding::toUTF8($message), true);
 		AJXP_XMLWriter::close();
@@ -434,6 +442,7 @@ class AJXP_XMLWriter
 			}else{
 				$buffer .= "<ajxp_roles>";
 				foreach ($loggedUser->getRoles() as $roleId => $boolean){
+                    if(strpos($roleId, "AJXP_GRP_") === 0) continue;
 					if($boolean === true) $buffer.= "<role id=\"$roleId\"/>";
 				}
 				$buffer .= "</ajxp_roles>";
@@ -461,7 +470,7 @@ class AJXP_XMLWriter
 	/**
      * Write the repositories access rights in XML format
      * @static
-     * @param $loggedUser
+     * @param AJXP_User|null $loggedUser
      * @param bool $details
      * @return string
      */
@@ -470,7 +479,10 @@ class AJXP_XMLWriter
 		$st .= "<repositories>";
 		$streams = ConfService::detectRepositoryStreams(false);
 		foreach (ConfService::getRepositoriesList() as $rootDirIndex => $rootDirObject)
-		{		
+		{
+            if(!AuthService::canAssign($rootDirObject, $loggedUser)) {
+                continue;
+            }
 			if($rootDirObject->isTemplate) continue;
 			$toLast = false;
 			if($rootDirObject->getAccessType()=="ajxp_conf"){
@@ -544,6 +556,7 @@ class AJXP_XMLWriter
 		foreach (ConfService::getRepositoriesList() as $repoId => $repoObject)
 		{		
 			$toLast = false;
+            if(!AuthService::canAssign($repoObject)) continue;
 			if($repoObject->getAccessType() == "ajxp_conf") continue;
 			if($repoObject->isTemplate) continue;
 			if($repoObject->getAccessType() == "ajxp_shared" && !AuthService::usersEnabled()){

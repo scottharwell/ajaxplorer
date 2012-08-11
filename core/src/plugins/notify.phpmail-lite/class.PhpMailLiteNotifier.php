@@ -66,6 +66,7 @@ class PhpMailLiteNotifier extends AJXP_Plugin {
 		if(!is_array($this->pluginConf)){
 			throw new Exception("Cannot find configuration for plugin notify.phpmail-lite! Make sur that you have filled the options in the GUI, or that the .inc file was dropped inside the /conf/ folder!");
 		}
+        if( $action == "upload" &&  !isSet($httpVars["dir"])) return;
 		require("lib/class.phpmailer-lite.php");
 
         // Parse options
@@ -114,26 +115,45 @@ class PhpMailLiteNotifier extends AJXP_Plugin {
 		
         $userSelection = new UserSelection();
         $userSelection->initFromHttpVars($httpVars);
-        $folder = $httpVars["dir"];
-        $file = "";
-        if(!$userSelection->isEmpty()){
-            $file = implode(",", array_map("basename", $userSelection->getFiles()));
-            if($folder == null){
-                $folder = dirname($userSelection->getUniqueFile());
+        if($action == "upload" && !isSet($httpVars["simple_uploader"]) && !isSet($httpVars["xhr_uploader"])){
+            // FLEX UPLOADER, BASE64 DECODE!
+            if(isset($fileVars["userfile_0"])){
+               $file = $fileVars["userfile_0"]["name"];
+            }else if(isSet($httpVars["Filename"])){
+                $file = $httpVars["Filename"];
+            }
+            $folder = base64_decode($httpVars["dir"]);
+        }else{
+            $folder = $httpVars["dir"];
+            $file = "";
+            if(!$userSelection->isEmpty()){
+                $file = implode(",", array_map("basename", $userSelection->getFiles()));
+                if($folder == null){
+                    $folder = dirname($userSelection->getUniqueFile());
+                }
+            }
+            if($action == "upload" && isset($fileVars["userfile_0"])){
+                $file = $fileVars["userfile_0"]["name"];
             }
         }
-        if($action == "upload" && isset($fileVars["userfile_0"])){
-            $file = $fileVars["userfile_0"]["name"];
+
+        $directUrl = "";
+        if(!empty($this->pluginConf["SERVER_URL"])){
+            $directUrl = rtrim($this->pluginConf["SERVER_URL"], "/")."/?repository_id=".ConfService::getRepository()->getUniqueId()."&folder=". urlencode($folder);
+            AJXP_Logger::debug($directUrl);
         }
-        $subject = array("%user", "AJXP_USER", "AJXP_FILE", "AJXP_FOLDER", "AJXP_ACTION","AJXP_REPOSITORY");
+
+        $subject = array("%user", "AJXP_USER", "AJXP_FILE", "AJXP_FOLDER_URL", "AJXP_FOLDER", "AJXP_ACTION","AJXP_REPOSITORY");
         $replace = array(AuthService::getLoggedUser()->getId(),
-                         AuthService::getLoggedUser()->getId(),
-                         $file,
-                         $folder,
-                         $action,
-                        ConfService::getRepository()->getDisplay()
+            AuthService::getLoggedUser()->getId(),
+            $file,
+            $directUrl,
+            $folder,
+            $action,
+            ConfService::getRepository()->getDisplay(),
         );
         $body = str_replace($subject, $replace, $this->pluginConf["BODY"]);
+        AJXP_Logger::debug($body);
         $mail->Subject = str_replace($subject, $replace, $this->pluginConf["SUBJECT"]);
 		$mail->Body = nl2br($body);
 		$mail->AltBody = strip_tags($mail->Body);

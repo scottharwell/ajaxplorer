@@ -404,7 +404,7 @@ class AuthService
 	{
 		$loggedUser = AuthService::getLoggedUser();
 		if($loggedUser == null) return 0;
-		$repoList = ConfService::getRootDirsList();
+		$repoList = ConfService::getRepositoriesList();
 		foreach ($repoList as $rootDirIndex => $rootDirObject)
 		{			
 			if($loggedUser->canRead($rootDirIndex."") || $loggedUser->canWrite($rootDirIndex."")) {
@@ -429,9 +429,10 @@ class AuthService
 	*/
 	static function updateAdminRights($adminUser)
 	{
-		foreach (array_keys(ConfService::getRootDirsList()) as $rootDirIndex)
-		{			
-			$adminUser->setRight($rootDirIndex, "rw");
+		foreach (ConfService::getRepositoriesList() as $repoId => $repoObject)
+		{
+            if(!self::allowedForCurrentGroup($repoObject, $adminUser)) continue;
+			$adminUser->setRight($repoId, "rw");
 		}
 		$adminUser->save();
 		return $adminUser;
@@ -446,12 +447,14 @@ class AuthService
 		if(!$userObject->hasParent()){
 			foreach (ConfService::getRepositoriesList() as $repositoryId => $repoObject)
 			{
+                if(!self::allowedForCurrentGroup($repoObject, $userObject)) continue;
                 if($repoObject->isTemplate) continue;
 				if($repoObject->getDefaultRight() != ""){
 					$userObject->setRight($repositoryId, $repoObject->getDefaultRight());
 				}
 			}
             foreach(AuthService::getRolesList() as $roleId => $roleObject){
+                if(!self::allowedForCurrentGroup($roleObject, $userObject)) continue;
                 if($roleObject->isDefault()){
                     $userObject->addRole($roleId);
                 }
@@ -469,6 +472,7 @@ class AuthService
         if($userId == "guest" && !ConfService::getCoreConf("ALLOW_GUEST_BROWSING", "auth")){
             return false;
         }
+        $userId = AuthService::filterUserSensitivity($userId);
 		$authDriver = ConfService::getAuthDriverImpl();
 		return $authDriver->userExists($userId);
 	}
@@ -480,6 +484,7 @@ class AuthService
      * @return bool
      */
     static function isReservedUserId($username){
+        $username = AuthService::filterUserSensitivity($username);
         return in_array($username, array("guest", "shared"));
     }
 
@@ -504,6 +509,7 @@ class AuthService
 	static function checkPassword($userId, $userPass, $cookieString = false, $returnSeed = "")
 	{
 		if(ConfService::getCoreConf("ALLOW_GUEST_BROWSING", "auth") && $userId == "guest") return true;
+        $userId = AuthService::filterUserSensitivity($userId);
 		$authDriver = ConfService::getAuthDriverImpl();
 		if($cookieString){		
 			$confDriver = ConfService::getConfStorageImpl();
@@ -529,6 +535,7 @@ class AuthService
 			$messages = ConfService::getMessages();
 			throw new Exception($messages[378]);
 		}
+        $userId = AuthService::filterUserSensitivity($userId);
 		$authDriver = ConfService::getAuthDriverImpl();
 		$authDriver->changePassword($userId, $userPass);
 		AJXP_Logger::logAction("Update Password", array("user_id"=>$userId));
@@ -546,6 +553,7 @@ class AuthService
      */
 	static function createUser($userId, $userPass, $isAdmin=false)
 	{
+        $userId = AuthService::filterUserSensitivity($userId);
         AJXP_Controller::applyHook("user.before_create", array($userId, $userPass, $isAdmin));
         if(!ConfService::getCoreConf("ALLOW_GUEST_BROWSING", "auth") && $userId == "guest"){
             throw new Exception("Reserved user id");
@@ -589,6 +597,7 @@ class AuthService
      */
 	static function deleteUser($userId)
 	{
+        $userId = AuthService::filterUserSensitivity($userId);
         AJXP_Controller::applyHook("user.before_delete", array($userId));
 		$authDriver = ConfService::getAuthDriverImpl();
 		$authDriver->deleteUser($userId);
@@ -602,22 +611,59 @@ class AuthService
         AJXP_Logger::logAction("Delete User", array("user_id"=>$userId, "sub_user" => implode(",", $subUsers)));
 		return true;
 	}
-	/**
-     * Call the auth driver impl to list all existing users
+
+    static function filterBaseGroup($baseGroup){
+        $u = self::getLoggedUser();
+        // make sure it starts with a slash.
+        $baseGroup = "/".ltrim($baseGroup, "/");
+        if($u == null) return $baseGroup;
+        if($u->getGroupPath() != "/") {
+            if($baseGroup == "/") return $u->getGroupPath();
+            else return $u->getGroupPath().$baseGroup;
+        }else{
+            return $baseGroup;
+        }
+    }
+
+    static function listChildrenGroups($baseGroup = "/"){
+
+        return ConfService::getAuthDriverImpl()->listChildrenGroups(self::filterBaseGroup($baseGroup));
+
+    }
+
+    static function createGroup($baseGroup, $groupName, $groupLabel){
+        ConfService::getConfStorageImpl()->createGroup(rtrim(self::filterBaseGroup($baseGroup), "/")."/".$groupName, $groupLabel);
+    }
+
+    static function getChildrenUsers($parentUserId){
+        return ConfService::getConfStorageImpl()->getUserChildren($parentUserId);
+    }
+
+    static function getUsersForRepository($repositoryId){
+        return ConfService::getConfStorageImpl()->getUsersForRepository($repositoryId);
+    }
+
+    /**
      * @static
+     * @param string $baseGroup
+     * @param null $regexp
+     * @param $offset
+     * @param $limit
+     * @param bool $cleanLosts
      * @return array
      */
-	static function listUsers($regexp = null, $offset = -1, $limit = -1, $cleanLosts = true)
+	static function listUsers($baseGroup = "/", $regexp = null, $offset = -1, $limit = -1, $cleanLosts = true)
 	{
+        $baseGroup = self::filterBaseGroup($baseGroup);
 		$authDriver = ConfService::getAuthDriverImpl();
 		$confDriver = ConfService::getConfStorageImpl();
 		$allUsers = array();
         $paginated = false;
         if(($regexp != null || $offset != -1 || $limit != -1) && $authDriver->supportsUsersPagination()){
-            $users = $authDriver->listUsersPaginated($regexp, $offset, $limit);
+            $users = $authDriver->listUsersPaginated($baseGroup, $regexp, $offset, $limit);
             $paginated = true;
         }else{
-            $users = $authDriver->listUsers();
+            $users = $authDriver->listUsers($baseGroup);
         }
 		foreach (array_keys($users) as $userId)
 		{
@@ -666,14 +712,23 @@ class AuthService
 	 * Get Role by Id
 	 *
 	 * @param string $roleId
+     * @param boolean $createIfNotExists
 	 * @return AjxpRole
 	 */
-	static function getRole($roleId){
+	static function getRole($roleId, $createIfNotExists = false){
 		$roles = self::getRolesList();
 		if(isSet($roles[$roleId])) return $roles[$roleId];
+        if($createIfNotExists){
+            $role = new AjxpRole($roleId);
+            if(self::getLoggedUser()!=null && self::getLoggedUser()->getGroupPath()!=null){
+                $role->setGroupPath(self::getLoggedUser()->getGroupPath());
+            }
+            self::updateRole($role);
+            return $role;
+        }
 		return false;
 	}
-	
+
 	/**
 	 * Create or update role
 	 *
@@ -719,7 +774,31 @@ class AuthService
 		$confDriver->saveRoles($roles);
 		self::$roles = $roles;		
 	}
-	
+
+    static function allowedForCurrentGroup(AjxpGroupPathProvider $provider, $userObject = null){
+        $l = ($userObject == null ? self::getLoggedUser() : $userObject);
+        $pGP = $provider->getGroupPath();
+        if(empty($pGP)) $pGP = "/";
+        if($l == null || $l->getGroupPath() == null || $pGP == null) return true;
+        return (strpos($l->getGroupPath(), $pGP, 0) === 0);
+    }
+
+    static function canAdministrate(AjxpGroupPathProvider $provider, $userObject = null){
+        $l = ($userObject == null ? self::getLoggedUser() : $userObject);
+        $pGP = $provider->getGroupPath();
+        if(empty($pGP)) $pGP = "/";
+        if($l == null || $l->getGroupPath() == null || $pGP == null) return true;
+        return (strpos($pGP, $l->getGroupPath(), 0) === 0);
+    }
+
+    static function canAssign(AjxpGroupPathProvider $provider, $userObject = null){
+        $l = ($userObject == null ? self::getLoggedUser() : $userObject);
+        $pGP = $provider->getGroupPath();
+        if(empty($pGP)) $pGP = "/";
+        if($l == null || $l->getGroupPath() == null || $pGP == null) return true;
+        return (strpos($l->getGroupPath(), $pGP, 0) === 0);
+    }
+
 }
 
 ?>

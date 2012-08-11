@@ -297,6 +297,9 @@ class PThumb{
         if (empty($image) || empty($width) ||empty($height)){
             return $this -> set_error("Method print_thumbnail: Missing Parameters");
         }
+         if(isSet($this->currentRealFile) && is_file($this->currentRealFile)){
+             $image = $this->currentRealFile;
+         }
         //Check whether $image is a remote address
         if ($this -> is_remote($image) == 1){
                 $is_remote = true;
@@ -313,7 +316,7 @@ class PThumb{
             if (!file_exists($image)){
                 return $this -> set_error("Method print_thumbnail: Error. The file '$image' you specified does not exists or cannot be accessed.");
             }
-            $image_data = @join(file($image));  
+            $image_data = implode("", file($image));
         }
         
         if (!is_string($image_data)){
@@ -346,7 +349,7 @@ class PThumb{
             $cache_file = $this -> cache_dir.sha1($transformed).".".$width.".".$height.".".$hash.".".$this->file_ext[$format];
             if (file_exists($cache_file)){   
                 if ($return_img == false){
-            		AJXP_Logger::debug("Using Cache");         	
+            		//AJXP_Logger::debug("Using Cache");
                 	//die($cache_file);
 		            header("Expires: " . gmdate("D, d M Y H:i:s") . " GMT");        
 		            header("Cache-Control: no-store, no-cache, must-revalidate");
@@ -359,7 +362,7 @@ class PThumb{
 					else{
 						header("Content-Disposition: attachment; filename=\"".time().".".$this->file_ext[$format]."\"");
 					}
-                	print(join(file($cache_file)));
+                	print(implode("",file($cache_file)));
                 	die();
                 	
 					//Prepare redirectional URL
@@ -370,7 +373,7 @@ class PThumb{
                     die();
                 }
                 else{
-                    return join(file($cache_file));
+                    return implode("",file($cache_file));
                 }
             }
             //Check that an older version does not exists and if it does, delete it
@@ -461,7 +464,7 @@ class PThumb{
         }
         if ($target_file != false){
             $wrappers = stream_get_wrappers();
-            $wrappers_re = '(' . join('|', $wrappers) . ')';
+            $wrappers_re = '(' . implode('|', $wrappers) . ')';
             $isStream = (preg_match( "!^$wrappers_re://!", $target_file ) === 1);
             if($isStream){
                 $backToStreamTarget = $target_file;
@@ -511,7 +514,7 @@ class PThumb{
 				header("Content-Disposition: attachment; filename=\"".time().".".$this -> file_ext[$format]."\"");
 			}
 			if ($this -> is_cacheable()){
-                echo join(file($cache_file));
+                echo implode("",file($cache_file));
             }
             else{
                 switch ($format){
@@ -528,7 +531,7 @@ class PThumb{
                         $outpupted = @imagewbmp($thumbnail);
                         break;
                     case 16:
-                        $outputed = @imagexbm($thumbnail);
+                        $outputed = @imagexbm($thumbnail, NULL);
                         break;
                     default:
                         $outputed = false;
@@ -541,7 +544,7 @@ class PThumb{
         }
         else{
             if ($this -> is_cacheable()){
-                return join(file($cache_file));
+                return implode("",file($cache_file));
             }
             else{
                 return $this -> set_error("Method print_thumbnail: Cannot return image '$image'! Cache must be enabled!");
@@ -771,7 +774,7 @@ class PThumb{
                 }
             }
         }
-        list($owidth,$oheight) = $this -> retrieve_image_data($image);
+        list($owidth,$oheight) = $array;// $this -> retrieve_image_data($image);
         if ($height > $oheight || $width > $owidth){
             $width = $owidth;
             $height = $oheight;
@@ -853,7 +856,7 @@ class PThumb{
             	$data .= fread($fp, 4096);
             }
             fclose($fp);
-            //$data = @join(file($url));
+            //$data = @implode("",file($url));
             if (strlen($data) > 0){
                 $this -> data_cache[sha1($url)] = $data;
                 return $data;
@@ -920,10 +923,12 @@ class PThumb{
         }
         //Try via the direct method first.
         
-        if ($this -> remote_check == true){        	
-        	$realFile = call_user_func(array($this->remote_wrapper, "getRealFSReference"), $file);
-            $array = getimagesize($realFile);
-            if ($array != false && $this -> remote_check == true){
+        if ($this -> remote_check == true){
+            if(!isSet($this->currentRealFile)){
+                $this->currentRealFile = call_user_func(array($this->remote_wrapper, "getRealFSReference"), $file);
+            }
+            $array = getimagesize($this->currentRealFile);
+            if ($array != false){
                 return $array;
             }
         }
@@ -932,7 +937,7 @@ class PThumb{
 			$filename = 'remote_'.sha1($file)."_".time();
 			//Check for file existence
 			if (file_exists($this -> cache_dir.$filename) && $this -> remote_check == false){
-				$data = join(file($this -> cache_dir.$filename));
+				$data = implode("", file($this -> cache_dir.$filename));
 			}
 			else{
 				$data = $this -> retrieve_remote_file($file);

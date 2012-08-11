@@ -1,0 +1,208 @@
+<?php
+/*
+ * Copyright 2007-2011 Charles du Jeu <contact (at) cdujeu.me>
+ * This file is part of AjaXplorer.
+ *
+ * AjaXplorer is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * AjaXplorer is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with AjaXplorer.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * The latest code can be found at <http://www.ajaxplorer.info/>.
+ */
+defined('AJXP_EXEC') or die( 'Access not allowed');
+
+/**
+ * @package info.ajaxplorer.core
+ */
+class AJXP_Sabre_Node implements Sabre_DAV_INode, Sabre_DAV_IProperties
+{
+
+    /**
+     * @var Repository
+     */
+    protected $repository;
+    /**
+     * @var AjxpWebdavProvider
+     */
+    protected $accessDriver;
+
+    /**
+     * @var String
+     */
+    protected $url;
+    protected $path;
+
+    function __construct($path, $repository, $accessDriver = null){
+        $this->repository = $repository;
+        if($accessDriver == null){
+            ConfService::switchRootDir($repository->getUniqueId());
+            ConfService::getConfStorageImpl();
+            $this->accessDriver = ConfService::loadRepositoryDriver();
+            if(!$this->accessDriver instanceof AjxpWebdavProvider){
+                throw new ezcBaseFileNotFoundException( $this->repository->getUniqueId() );
+            }
+            $this->accessDriver->detectStreamWrapper(true);
+        }else{
+            $this->accessDriver = $accessDriver;
+        }
+        $this->path = $path;
+        $this->url = $this->accessDriver->getRessourceUrl($path);
+    }
+
+    /**
+     * Deleted the current node
+     *
+     * @return void
+     */
+    function delete(){
+
+        ob_start();
+        try{
+            AJXP_Controller::findActionAndApply("delete", array(
+                "dir"       => dirname($this->path),
+                "file_0"    => $this->path
+            ), array());
+        }catch(Exception $e){
+
+        }
+        ob_get_flush();
+        $this->putResourceData(array());
+
+    }
+
+    /**
+     * Returns the name of the node.
+     *
+     * This is used to generate the url.
+     *
+     * @return string
+     */
+    function getName(){
+        return basename($this->url);
+    }
+
+    /**
+     * Renames the node
+     *
+     * @param string $name The new name
+     * @return void
+     */
+    function setName($name){
+        $data = $this->getResourceData();
+        ob_start();
+        AJXP_Controller::findActionAndApply("rename", array(
+            "filename_new"      => $name,
+            "dir"               => dirname($this->path),
+            "file"              => $this->path
+        ), array());
+        ob_get_flush();
+        $this->putResourceData(array());
+        $this->putResourceData($data, dirname($this->url)."/".$name);
+    }
+
+    /**
+     * Returns the last modification time, as a unix timestamp
+     *
+     * @return int
+     */
+    function getLastModified(){
+        return filemtime($this->url);
+    }
+
+
+    /**
+     * Updates properties on this node,
+     *
+     * @param array $properties
+     * @see Sabre_DAV_IProperties::updateProperties
+     * @return bool|array
+     */
+    public function updateProperties($properties) {
+
+        $resourceData = $this->getResourceData();
+
+        foreach($properties as $propertyName=>$propertyValue) {
+
+            // If it was null, we need to delete the property
+            if (is_null($propertyValue)) {
+                if (isset($resourceData['properties'][$propertyName])) {
+                    unset($resourceData['properties'][$propertyName]);
+                }
+            } else {
+                $resourceData['properties'][$propertyName] = $propertyValue;
+            }
+
+        }
+
+        //AJXP_Logger::debug("Saving Data", $resourceData);
+        $this->putResourceData($resourceData);
+        return true;
+    }
+
+    /**
+     * Returns a list of properties for this nodes.;
+     *
+     * The properties list is a list of propertynames the client requested, encoded as xmlnamespace#tagName, for example: http://www.example.org/namespace#author
+     * If the array is empty, all properties should be returned
+     *
+     * @param array $properties
+     * @return array
+     */
+    function getProperties($properties) {
+
+        $resourceData = $this->getResourceData();
+
+        // if the array was empty, we need to return everything
+        if (!$properties) return $resourceData['properties'];
+
+        $props = array();
+        foreach($properties as $property) {
+            if (isset($resourceData['properties'][$property])) $props[$property] = $resourceData['properties'][$property];
+        }
+
+        return $props;
+
+    }
+
+    protected function putResourceData($array, $newURL = null){
+
+        $metaStore = $this->getMetastore();
+        if($metaStore != false){
+            $metaStore->setMetadata(new AJXP_Node(($newURL!=null?$newURL:$this->url)), "SABRE_DAV", $array, false, AJXP_METADATA_SCOPE_GLOBAL);
+        }
+
+    }
+
+
+    protected function getResourceData(){
+        $metaStore = $this->getMetastore();
+        $data = array();
+        if($metaStore != false){
+            $data = $metaStore->retrieveMetadata(new AJXP_Node($this->url), "SABRE_DAV", false, AJXP_METADATA_SCOPE_GLOBAL);
+        }
+        if (!isset($data['properties'])) $data['properties'] = array();
+        return $data;
+    }
+
+
+    /**
+     * @return MetaStoreProvider|bool
+     */
+    protected function getMetastore(){
+        $metaStore = AJXP_PluginsService::getInstance()->getUniqueActivePluginForType("metastore");
+        if($metaStore === false) return false;
+        $metaStore->initMeta($this->accessDriver);
+        return $metaStore;
+    }
+
+
+}

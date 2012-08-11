@@ -370,7 +370,7 @@ class AJXP_Utils
             $pos = strrpos($fileName, ".");
             if($pos !== false){
                 $fileExt = substr($fileName, $pos + 1);
-                if(array_key_exists($fileExt, self::$registeredExtensions) && $fileExt != "ajxp_folder" && $fileExt != "ajxp_empty"){
+                if(!empty($fileExt) && array_key_exists($fileExt, self::$registeredExtensions) && $fileExt != "ajxp_folder" && $fileExt != "ajxp_empty"){
                     $mime = self::$registeredExtensions[$fileExt];
                 }
             }
@@ -1021,12 +1021,13 @@ class AJXP_Utils
     static function saveSerialFile($filePath, $value, $createDir = true, $silent = false, $format="ser")
     {
         $filePath = AJXP_VarsFilter::filter($filePath);
-        if ($createDir && !is_dir(dirname($filePath))) {
-            if (!is_writeable(dirname(dirname($filePath)))) {
-                if ($silent) return;
+        if ($createDir && !is_dir(dirname($filePath))){
+            @mkdir(dirname($filePath), 0755, true);
+            if(!is_dir(dirname($filePath))){
+                // Creation failed
+                if($silent) return;
                 else throw new Exception("[AJXP_Utils::saveSerialFile] Cannot write into " . dirname(dirname($filePath)));
             }
-            mkdir(dirname($filePath));
         }
         try {
             $fp = fopen($filePath, "w");
