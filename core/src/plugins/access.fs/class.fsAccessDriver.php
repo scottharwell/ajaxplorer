@@ -190,6 +190,8 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 							throw new Exception("Cannot find file!");
 						}
 					}
+                    $node = $selection->getUniqueNode($this);
+                    AJXP_Controller::applyHook("node.read", array(&$node));
 				}else{
 					$zip = true;
 				}
@@ -214,7 +216,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 
 				$chunkCount = intval($httpVars["chunk_count"]);
 				$fileId = $this->urlBase.$selection->getUniqueFile();
-				$sessionKey = "chunk_file_".md5($fileId.time());
+                $sessionKey = "chunk_file_".md5($fileId.time());
 				$totalSize = $this->filesystemFileSize($fileId);
 				$chunkSize = intval ( $totalSize / $chunkCount ); 
 				$realFile  = call_user_func(array($this->wrapperClassName, "getRealFSReference"), $fileId, true);
@@ -230,7 +232,10 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 				HTMLWriter::charsetHeader("application/json");
 				print(json_encode($chunkData));
 
-			break;
+                $node = $selection->getUniqueNode($this);
+                AJXP_Controller::applyHook("node.read", array(&$node));
+
+                break;
 			
 			case "download_chunk" :
 				
@@ -305,8 +310,10 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 				}else{
 					$this->readFile($this->urlBase.$selection->getUniqueFile(), "plain");
 				}
-				
-			break;
+                $node = $selection->getUniqueNode($this);
+                AJXP_Controller::applyHook("node.read", array(&$node));
+
+                break;
 			
 			case "put_content":	
 				if(!isset($httpVars["content"])) break;
@@ -362,14 +369,25 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 					$action = "copy";
 					$this->extractArchive($dest, $selection, $error, $success);
 				}else{
-					$this->copyOrMove($dest, $selection->getFiles(), $error, $success, ($action=="move"?true:false));
+                    $move = ($action == "move" ? true : false);
+                    if($move && isSet($httpVars["force_copy_delete"])){
+                        $move = false;
+                    }
+					$this->copyOrMove($dest, $selection->getFiles(), $error, $success, $move);
+
 				}
 				
 				if(count($error)){					
 					throw new AJXP_Exception(SystemTextEncoding::toUTF8(join("\n", $error)));
 				}else {
-					$logMessage = join("\n", $success);
-					AJXP_Logger::logAction(($action=="move"?"Move":"Copy"), array("files"=>$selection, "destination"=>$dest));
+                    if(isSet($httpVars["force_copy_delete"])){
+                        $errorMessage = $this->delete($selection->getFiles(), $logMessages);
+                        if($errorMessage) throw new AJXP_Exception(SystemTextEncoding::toUTF8($errorMessage));
+                        AJXP_Logger::logAction("Copy/Delete", array("files"=>$selection, "destination" => $dest));
+                    }else{
+                        AJXP_Logger::logAction(($action=="move"?"Move":"Copy"), array("files"=>$selection, "destination"=>$dest));
+                    }
+                    $logMessage = join("\n", $success);
 				}
 				$reloadContextNode = true;
                 if(!(RecycleBinManager::getRelativeRecycle() ==$dest && $this->driverConf["HIDE_RECYCLE"] == true)){
@@ -688,6 +706,7 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 				}
 				$parentAjxpNode = new AJXP_Node($nonPatchedPath, $metaData);
                 $parentAjxpNode->loadNodeInfo(false, true, ($lsOptions["l"]?"all":"minimal"));
+                AJXP_Controller::applyHook("node.read", array(&$parentAjxpNode));
                 if(AJXP_XMLWriter::$headerSent == "tree"){
                     AJXP_XMLWriter::renderAjxpNode($parentAjxpNode, false);
                 }else{
@@ -787,7 +806,6 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 				{
 					$recycleBinOption = RecycleBinManager::getRelativeRecycle();										
 					if(file_exists($this->urlBase.$recycleBinOption)){
-						$recycleIcon = ($this->countFiles($this->urlBase.$recycleBinOption, false, true)>0?"trashcan_full.png":"trashcan.png");
 						$recycleNode = new AJXP_Node($this->urlBase.$recycleBinOption);
                         $recycleNode->loadNodeInfo();
                         AJXP_XMLWriter::renderAjxpNode($recycleNode);
@@ -1161,7 +1179,10 @@ class fsAccessDriver extends AbstractAccessDriver implements AjxpWebdavProvider
 	}
 
 	function countFiles($dirName, $foldersOnly = false, $nonEmptyCheckOnly = false){
-		$handle=opendir($dirName);
+		$handle=@opendir($dirName);
+        if($handle === false){
+            throw new Exception("Error while trying to open directory ".$dirName);
+        }
 		$count = 0;
 		while (strlen($file = readdir($handle)) > 0)
 		{

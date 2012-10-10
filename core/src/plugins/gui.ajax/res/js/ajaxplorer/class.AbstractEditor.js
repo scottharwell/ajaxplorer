@@ -42,7 +42,11 @@ Class.create("AbstractEditor" , {
 	/**
 	 * @var Hash For the moment supported options are "fullscreen", "closable", "floatingToolbar".
 	 */
-	editorOptions:null, 
+	editorOptions:null,
+    /**
+     * @var An AjxpNode or an array of nodes
+     */
+    inputNode : null,
 	
 	/**
 	 * Standard contructor
@@ -209,8 +213,8 @@ Class.create("AbstractEditor" , {
 	 * Opens the editor with the current model
 	 * @param userSelection AjxpDataModel the data model
 	 */
-	open : function(userSelection){
-		this.userSelection = userSelection;
+	open : function(nodeOrNodes){
+		this.inputNode = nodeOrNodes;
 	},
 	/**
 	 * Updates the editor title
@@ -336,11 +340,11 @@ Class.create("AbstractEditor" , {
 	 * Add a loading image to the given element
 	 * @param element Element dom node
 	 */
-	setOnLoad : function(element){	
+	setOnLoad : function(element){
+        if(!element) element = this.element;
 		addLightboxMarkupToElement(element);
-		var img = document.createElement("img");
-		img.src = ajxpResourcesFolder+"/images/loadingImage.gif";
-		$(element).select("#element_overlay")[0].appendChild(img);
+		var img = new Element("img", {src: ajxpResourcesFolder+"/images/loadingImage.gif"});
+		$(element).down("#element_overlay").insert(img);
 		this.loading = true;
 	},
 	/**
@@ -348,6 +352,7 @@ Class.create("AbstractEditor" , {
 	 * @param element Element dom node
 	 */
 	removeOnLoad : function(element){
+        if(!element) element = this.element;
 		removeLightboxFromElement(element);
 		this.loading = false;	
 	},

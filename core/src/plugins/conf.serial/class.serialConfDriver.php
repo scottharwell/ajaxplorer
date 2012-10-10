@@ -102,13 +102,53 @@ class serialConfDriver extends AbstractConfDriver {
 
 	}
 
-	function listRoles(){
-		return AJXP_Utils::loadSerialFile($this->rolesSerialFile);
+	function listRoles($roleIds = array(), $excludeReserved = false){
+		$all = AJXP_Utils::loadSerialFile($this->rolesSerialFile);
+        $result = array();
+        if(count($roleIds)){
+            foreach($roleIds as $id){
+                if(isSet($all[$id]) && !($excludeReserved && strpos($id,"AJXP_") === 0)) {
+                    $result[$id] = $all[$id];
+                }
+            }
+        }else{
+            foreach($all as $id => $role){
+                if($excludeReserved && strpos($id,"AJXP_") === 0) continue;
+                $result[$id] = $role;
+            }
+        }
+        return $result;
 	}
 
 	function saveRoles($roles){
 		AJXP_Utils::saveSerialFile($this->rolesSerialFile, $roles);
 	}
+
+    /**
+     * @param AJXP_Role $role
+     * @param AbstractAjxpUser|null $userObject
+     */
+    function updateRole($role, $userObject = null){
+        if($userObject != null){
+            // This a personal role, save differently
+            $userObject->personalRole = $role;
+            $userObject->save("superuser");
+        }else{
+            $all = AJXP_Utils::loadSerialFile($this->rolesSerialFile);
+            $all[$role->getId()] = $role;
+            AJXP_Utils::saveSerialFile($this->rolesSerialFile, $all);
+        }
+    }
+
+    function deleteRole($role){
+        // Mixed input Object or ID
+        if(is_a($role, "AJXP_Role")) $roleId = $role->getId();
+        else $roleId = $role;
+
+        $all = AJXP_Utils::loadSerialFile($this->rolesSerialFile);
+        if(isSet($all[$roleId])) unset($all[$roleId]);
+        AJXP_Utils::saveSerialFile($this->rolesSerialFile, $all);
+    }
 
 	function countAdminUsers(){
 		$confDriver = ConfService::getConfStorageImpl();
@@ -267,7 +307,7 @@ class serialConfDriver extends AbstractConfDriver {
         foreach($groups as $id => $path){
             if(substr($path, 0, strlen($baseGroup)) == $baseGroup && strlen($path) >  strlen($baseGroup)){
                 $parts = explode("/", ltrim(substr($path, strlen($baseGroup)), "/"));
-                $sub = array_shift($parts);
+                $sub = "/".array_shift($parts);
                 if(!isset($levelGroups[$sub])) $levelGroups[$sub] = $path;
                 if(substr($id, 0, strlen("AJXP_GROUP:")) == "AJXP_GROUP:"){
                     $labels[$path] = array_pop(explode(":", $id, 2));
@@ -287,6 +327,30 @@ class serialConfDriver extends AbstractConfDriver {
         AJXP_Utils::saveSerialFile(AJXP_VarsFilter::filter($this->getOption("USERS_DIRPATH"))."/groups.ser", $groups);
     }
 
+    function relabelGroup($groupPath, $groupLabel){
+        $groups = AJXP_Utils::loadSerialFile(AJXP_VarsFilter::filter($this->getOption("USERS_DIRPATH"))."/groups.ser");
+        $reverse = array_flip($groups);
+        if(isSet($reverse[$groupPath])){
+            $oldLabel = $reverse[$groupPath];
+            unset($groups[$oldLabel]);
+            $groups["AJXP_GROUP:$groupLabel"] = $groupPath;
+            AJXP_Utils::saveSerialFile(AJXP_VarsFilter::filter($this->getOption("USERS_DIRPATH"))."/groups.ser", $groups);
+        }
+    }
+
+    function deleteGroup($groupPath){
+        $gUsers = AuthService::listUsers($groupPath);
+        $gGroups = AuthService::listChildrenGroups($groupPath);
+        if(count($gUsers) || count($gGroups)){
+            throw new Exception("Group is not empty, please do something with its content before trying to delete it!");
+        }
+        $groups = AJXP_Utils::loadSerialFile(AJXP_VarsFilter::filter($this->getOption("USERS_DIRPATH"))."/groups.ser");
+        foreach($groups as $key => $value){
+            if($value == $groupPath) unset($groups[$key]);
+        }
+        AJXP_Utils::saveSerialFile(AJXP_VarsFilter::filter($this->getOption("USERS_DIRPATH"))."/groups.ser", $groups);
+    }
+
     /**
 	 * Instantiate the right class
 	 *
@@ -294,10 +358,132 @@ class serialConfDriver extends AbstractConfDriver {
      * @return AbstractAjxpUser
 	 */
 	function instantiateAbstractUserImpl($userId){
-		return new AJXP_User($userId, $this);
+		return new AJXP_SerialUser($userId, $this);
 	}
 
 	function getUserClassFileName(){
-		return AJXP_INSTALL_PATH."/plugins/conf.serial/class.AJXP_User.php";
+		return AJXP_INSTALL_PATH."/plugins/conf.serial/class.AJXP_SerialUser.php";
 	}
+
+    /**
+     * Function for deleting a user
+     *
+     * @param String $userId
+     * @param Array $deletedSubUsers
+     */
+    function deleteUser($userId, &$deletedSubUsers)
+    {
+        $user = $this->createUserObject($userId);
+        $files = glob($user->getStoragePath()."/*.ser");
+        if(is_array($files) && count($files)){
+            foreach ($files as $file){
+                unlink($file);
+            }
+        }
+        if(is_dir($user->getStoragePath())) {
+            rmdir($user->getStoragePath());
+        }
+
+        $authDriver = ConfService::getAuthDriverImpl();
+        $users = $authDriver->listUsers();
+        foreach (array_keys($users) as $id){
+            $object = $this->createUserObject($id);
+            if($object->hasParent() && $object->getParent() == $userId){
+                $this->deleteUser($id, $deletedSubUsers);
+                $deletedSubUsers[] = $id;
+            }
+        }
+
+        $groups = AJXP_Utils::loadSerialFile(AJXP_VarsFilter::filter($user->storage->getOption("USERS_DIRPATH"))."/groups.ser");
+        if(isSet($groups[$userId])){
+            unset($groups[$userId]);
+            AJXP_Utils::saveSerialFile(AJXP_VarsFilter::filter($user->storage->getOption("USERS_DIRPATH"))."/groups.ser", $groups);
+
+        }
+    }
+
+    protected function getBinaryPathStorage($context){
+        $storage = $this->getPluginWorkDir()."/binaries";
+        if(isSet($context["USER"])){
+            $storage.="/users/".$context["USER"];
+        }else if(isSet($context["REPO"])){
+            $storage.="/repos/".$context["REPO"];
+        }else if(isSet($context["ROLE"])){
+            $storage.="/roles/".$context["REPO"];
+        }
+        if(!isSet($this->options["FAST_CHECKS"]) || $this->options["FAST_CHECKS"] !== true){
+            if(!is_dir($storage)) @mkdir($storage, 0755, true);
+        }
+        return $storage;
+    }
+
+    /**
+     * @param array $context
+     * @param String $fileName
+     * @param String $ID
+     * @return String $ID
+     */
+    function saveBinary($context, $fileName, $ID = null)
+    {
+        if(empty($ID)){
+            $ID = substr(md5(microtime()*rand(0,100)), 0, 12);
+            $ID .= ".".pathinfo($fileName, PATHINFO_EXTENSION);
+        }
+        copy($fileName, $this->getBinaryPathStorage($context)."/".$ID);
+
+        return $ID;
+    }
+
+    /**
+     * @param array $context
+     * @param String $ID
+     * @param Stream $outputStream
+     * @return boolean
+     */
+    function loadBinary($context, $ID, $outputStream = null)
+    {
+        if(is_file($this->getBinaryPathStorage($context)."/".$ID)){
+            if($outputStream == null){
+                header("Content-Type: ".AJXP_Utils::getImageMimeType($ID));
+                readfile($this->getBinaryPathStorage($context)."/".$ID);
+            }
+        }
+    }
+
+    /**
+     * @param string $queueName
+     * @param Object $object
+     * @return bool
+     */
+    function storeObjectToQueue($queueName, $object)
+    {
+        $data = array();
+        $fExists = false;
+        if(file_exists($this->getPluginWorkDir()."/queues/$queueName.ser")){
+            $fExists = true;
+            $data = unserialize(file_get_contents($this->getPluginWorkDir()."/queues/$queueName.ser"));
+        }
+        $data[] = $object;
+        if(!$fExists){
+            if(!is_dir($this->getPluginWorkDir()."/queues")){
+                mkdir($this->getPluginWorkDir()."/queues", 0755, true);
+            }
+        }
+        $res = file_put_contents($this->getPluginWorkDir()."/queues/$queueName.ser", serialize($data), LOCK_EX);
+        return $res;
+    }
+
+    /**
+     * @param string $queueName Name of the queue
+     * @return array An array of arbitrary objects, understood by the caller
+     */
+    function consumeQueue($queueName)
+    {
+        $data = array();
+        if(file_exists($this->getPluginWorkDir()."/queues/$queueName.ser")){
+            $data = unserialize(file_get_contents($this->getPluginWorkDir()."/queues/$queueName.ser"));
+            file_put_contents($this->getPluginWorkDir()."/queues/$queueName.ser", array(), LOCK_EX);
+        }
+        return $data;
+    }
 }

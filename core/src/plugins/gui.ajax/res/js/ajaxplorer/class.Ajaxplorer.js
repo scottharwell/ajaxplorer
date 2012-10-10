@@ -182,6 +182,7 @@ Class.create("Ajaxplorer", {
 			this.actionBar.loadActionsFromRegistry(this._registry);
 		}
 		document.observe("ajaxplorer:registry_loaded", function(event){
+            if(Prototype.Browser.IE) ResourcesManager.prototype.loadAutoLoadResources(event.memo);
 			this.actionBar.loadActionsFromRegistry(event.memo);
 		}.bind(this) );
 				
@@ -484,11 +485,18 @@ Class.create("Ajaxplorer", {
 		var repositoryObject = new Repository(null);
 		if(this.user != null)
 		{
-			var repId = this.user.getActiveRepository();
+            var repId = this.user.getActiveRepository();
 			var repList = this.user.getRepositoriesList();			
 			repositoryObject = repList.get(repId);
 			if(!repositoryObject){
-				alert("No active repository found for user!");
+                if(this.user.lock){
+                    this.actionBar.loadActionsFromRegistry(this._registry);
+                    window.setTimeout(function(){
+                        this.actionBar.fireAction(this.user.lock);
+                    }.bind(this), 50);
+                    return;
+                }
+                alert("No active repository found for user!");
 			}
 			if(this.user.getPreference("pending_folder") && this.user.getPreference("pending_folder") != "-1"){
 				this._initLoadRep = this.user.getPreference("pending_folder");
@@ -724,7 +732,17 @@ Class.create("Ajaxplorer", {
 		}
 		return configs;
 	},
-	
+
+    hasPluginOfType : function(type, name){
+        if(name == null){
+            var node = XPathSelectSingleNode(this._registry, 'plugins/ajxp_plugin[contains(@id, "'+type+'.")] | plugins/' + type + '[@id]');
+        }else{
+            var node = XPathSelectSingleNode(this._registry, 'plugins/ajxp_plugin[@id="'+type+'.'+name+'"] | plugins/' + type + '[@id="'+type+'.'+name+'"]');
+        }
+        if(node) return true;
+        return false;
+    },
+
 	/**
 	 * Find the currently active extensions by type
 	 * @param extensionType String "editor" or "uploader"
@@ -1021,7 +1039,7 @@ Class.create("Ajaxplorer", {
 	 */
 	cancelCopyOrMove: function(){
 		this.actionBar.treeCopyActive = false;
-		hideLightBox();
+		//hideLightBox();
 		return false;
 	},
 		

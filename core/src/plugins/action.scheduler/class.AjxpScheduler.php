@@ -27,14 +27,12 @@ class AjxpScheduler extends AJXP_Plugin{
 
     function __construct($id, $baseDir){
         parent::__construct($id, $baseDir);
-        $this->db =AJXP_DATA_PATH."/plugins/action.scheduler/calendar.json" ;
-        if(!is_dir(dirname($this->db))) mkdir(dirname($this->db), 0755, true);
+        $this->db = $this->getPluginWorkDir(true). "/calendar.json" ;
     }
 
     function unserialize($serialized){
         parent::unserialize($serialized);
-        $this->db =AJXP_DATA_PATH."/plugins/action.scheduler/calendar.json" ;
-        if(!is_dir(dirname($this->db))) mkdir(dirname($this->db), 0755, true);
+        $this->db = $this->getPluginWorkDir(true). "/calendar.json" ;
     }
 
 
@@ -242,10 +240,12 @@ class AjxpScheduler extends AJXP_Plugin{
     }
 
     function placeConfigNode(&$configTree){
-        $configTree["admin"]["CHILDREN"]["scheduler"] = array(
-            "LABEL" => "Scheduler",
-            "ICON" => "scheduler/ICON_SIZE/player_time.png",
-            "LIST" => array($this, "listTasks"));
+        if(isSet($configTree["admin"])){
+            $configTree["admin"]["CHILDREN"]["scheduler"] = array(
+                "LABEL" => "Scheduler",
+                "ICON" => "scheduler/ICON_SIZE/player_time.png",
+                "LIST" => array($this, "listTasks"));
+        }
     }
 
     function listTasks($action, $httpVars, $postProcessData){
@@ -446,6 +446,7 @@ class AjxpScheduler extends AJXP_Plugin{
 
     function fakeLongTask($action, $httpVars, $fileVars){
         $minutes = (isSet($httpVars["time_length"])?intval($httpVars["time_length"]):2);
+        AJXP_Logger::debug("Running Fake task on ".AuthService::getLoggedUser()->getId());
         print('STARTING FAKE TASK');
         sleep($minutes * 60);
         print('ENDIND FAKE TASK');

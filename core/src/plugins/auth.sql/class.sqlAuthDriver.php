@@ -44,15 +44,15 @@ class sqlAuthDriver extends AbstractAuthDriver {
     function supportsUsersPagination(){
         return true;
     }
-    function listUsersPaginated($regexp, $offset, $limit){
+    function listUsersPaginated($baseGroup = "/", $regexp, $offset, $limit){
         if($regexp != null){
             if($regexp[0]=="^") $regexp = ltrim($regexp, "^")."%";
             else if($regexp[strlen($regexp)-1] == "$") $regexp = "%".rtrim($regexp, "$");
-            $res = dibi::query("SELECT * FROM [ajxp_users] WHERE [login] LIKE '".$regexp."' ORDER BY [login] ASC") ;
+            $res = dibi::query("SELECT * FROM [ajxp_users] WHERE [login] LIKE '".$regexp."' AND [groupPath] LIKE %s ORDER BY [login] ASC", $baseGroup."%") ;
         }else if($offset != -1 || $limit != -1){
-            $res = dibi::query("SELECT * FROM [ajxp_users]  ORDER BY [login] ASC LIMIT $offset,$limit");
+            $res = dibi::query("SELECT * FROM [ajxp_users] WHERE [groupPath] LIKE %s ORDER BY [login] ASC LIMIT $offset,$limit", $baseGroup."%");
         }else{
-            $res = dibi::query("SELECT * FROM [ajxp_users] ORDER BY [login] ASC");
+            $res = dibi::query("SELECT * FROM [ajxp_users] WHERE [groupPath] LIKE %s ORDER BY [login] ASC", $baseGroup."%");
         }
         $pairs = $res->fetchPairs('login', 'password');
    		return $pairs;
@@ -62,9 +62,15 @@ class sqlAuthDriver extends AbstractAuthDriver {
         return $res->getRowCount();
     }
 
-	function listUsers(){
-		$res = dibi::query("SELECT * FROM [ajxp_users] ORDER BY [login] ASC");
-		$pairs = $res->fetchPairs('login', 'password');
+	function listUsers($baseGroup="/"){
+        $pairs = array();
+		$res = dibi::query("SELECT * FROM [ajxp_users] WHERE [groupPath] LIKE %s ORDER BY [login] ASC", $baseGroup."%");
+		$rows = $res->fetchAll();
+        foreach($rows as $row){
+            $grp = $row["groupPath"];
+            if(strlen($grp) > strlen($baseGroup)) continue;
+            $pairs[$row["login"]] = $row["password"];
+        }
 		return $pairs;
 	}
 	
@@ -92,9 +98,7 @@ class sqlAuthDriver extends AbstractAuthDriver {
 	}
 	
 	function createUser($login, $passwd){
-		$users = $this->listUsers();
-		if(!is_array($users)) $users = array();
-		if(array_key_exists($login, $users)) return "exists";
+		if($this->userExists($login)) return "exists";
 		$userData = array("login" => $login);
 		if($this->getOption("TRANSMIT_CLEAR_PASS") === true){
 			$userData["password"] = md5($passwd);
@@ -104,18 +108,17 @@ class sqlAuthDriver extends AbstractAuthDriver {
 		dibi::query('INSERT INTO [ajxp_users]', $userData);
 	}	
 	function changePassword($login, $newPass){
-		$users = $this->listUsers();
-		if(!is_array($users) || !array_key_exists($login, $users)) return ;
+        if(!$this->userExists($login)) throw new Exception("User does not exists!");
 		$userData = array("login" => $login);
 		if($this->getOption("TRANSMIT_CLEAR_PASS") === true){
 			$userData["password"] = md5($newPass);
 		}else{
 			$userData["password"] = $newPass;
 		}
-		dibi::query("UPDATE [ajxp_users] SET ", $userData, "WHERE `login`=%s", $login);
+		dibi::query("UPDATE [ajxp_users] SET ", $userData, "WHERE [login]=%s", $login);
 	}	
 	function deleteUser($login){
-		dibi::query("DELETE FROM [ajxp_users] WHERE `login`=%s", $login);
+		dibi::query("DELETE FROM [ajxp_users] WHERE [login]=%s", $login);
 	}
 
 	function getUserPass($login){

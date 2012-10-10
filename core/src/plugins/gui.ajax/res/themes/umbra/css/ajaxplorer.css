@@ -319,6 +319,10 @@ div.shadow_class
     height: 22px;
 }
 
+.dialogContent select[multiple]{
+    height: 66px;
+}
+
 .dialogContent input:focus,
 .dialogContent input[type="text"]:focus,
 .dialogContent input[type="password"]:focus,
@@ -345,6 +349,7 @@ div.shadow_class
 	border-radius : 0px;
     border:none;
     filter: none;
+    background: none;
 }
 
 .dialogLegend
@@ -371,6 +376,17 @@ fieldSet input.dialogButton
     background-color: #f1f1ef;
     border-radius: 3px;
     -moz-border-radius: 3px;
+}
+
+.dialogButtonsCheckbox{
+
+    float: left;
+    margin-top: 9px;
+
+}
+
+.dialogButtonsCheckbox label{
+    cursor: pointer;
 }
 
 .editContent, .editContent div
@@ -437,15 +453,19 @@ textarea#myCode
 }
 
 .largeButton{
-    padding: 5px;
-    font-size: 14px;
+    padding: 2px 4px 1px;
+    font-size: 12px;
     text-align: center;
-    border: 1px solid #CCC;
-    -webkit-border-radius: 7px;
-    -moz-border-radius: 7px;
-    border-radius: 7px;
+    border: 1px solid #A7A7A7;
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+    border-radius: 4px;
     cursor: pointer;
-    text-shadow : 1px 1px 1px #FFFFFF;
+    text-shadow: 1px 1px 1px white;
+    box-shadow: inset 1px 1px 1px white;
+    width: 95px;
+    display: inline-block !important;
+    margin: 0 6px;
 }
 .largeButton img{
     width:16px;
@@ -595,6 +615,26 @@ div.accordion_content{
     padding: 5px;
 }
 
+div.dialogContentMainTitle{
+    color: #2B70BE;
+    font-size: 20px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #2B70BE;
+    padding-bottom: 0px;
+}
+
+div.oneFieldForm{
+    margin-bottom: 13px;
+    background-color: #EEEEEE;
+    padding: 3px 6px;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+div.oneFieldForm input.SF_input{
+    background: white !important;
+}
+
 /********************/
 /* PROGRESS BAR     */
 /********************/
@@ -738,6 +778,22 @@ input.SF_input.SF_number{
     height: 3px;
 }
 
+.SF_image_block{
+    max-width: 80px;
+    float: left;
+}
+
+.SF_image.small{
+    max-width: 80px;
+    max-height: 80px;
+}
+.SF_image_link{
+    display: inline-block;
+    width: 80px;
+    cursor: pointer;
+    text-align: center;
+}
+
 .accordion_toggle_failed {
 	background-color: #D8B0B0 !important;
 }
@@ -818,6 +874,37 @@ input.SF_input.SF_number{
 }
 .action_bar.editor_action_bar{
     height:55px;
+}
+
+div.editor_header{
+    height: 55px;
+}
+
+div.editor_header > div.editor_action_bar {
+    position: absolute;
+    right: 0;
+    padding-right: 8px;
+    background: none;
+    padding-top: 15px;
+    height: 42px;
+    padding-left: 10px;
+}
+
+div.editor_header > div.editor_action_bar > div.separator{
+    display: none !important;
+}
+
+div.editor_header > span.header_label{
+    font-size: 24px;
+    width: 100%;
+    padding: 15px 0 0 62px;
+    display: inline-block;
+    background-image: url('../images/mimes/64/user-acl.png');
+    background-size: 40px;
+    background-repeat: no-repeat;
+    background-position: 14px 9px;
+    text-shadow: 1px 1px 5px black;
+    overflow: visible;
 }
 
 .action_bar.text_only{
@@ -1134,7 +1221,8 @@ a.carousel-control img{
    background-color: rgba(255, 255, 255, 0.7);
 }
 
-.inline_disabled img
+.inline_disabled img,
+.SF_disabled img
 {
 	filter:alpha(opacity=30);
 	opacity: 0.3;
@@ -1198,6 +1286,19 @@ img.simple_button_arrow{
 	cursor: pointer;
 }
 
+.user_widget_label.withImage{
+    position: relative;
+    padding-left: 23px;
+}
+
+img.user_widget_mini{
+    position: absolute;
+    height: 16px;
+    border: 1px solid white;
+    top: 5px;
+    left: 2px;
+    box-shadow: 1px 1px 0px #666;
+}
 
 .locationbar_title
 {
@@ -2500,12 +2601,13 @@ div.user_role{
 .editable_users_list{
 
     border: 1px solid #AAAAAA;
-    height: 130px;
+    height: 160px;
     overflow: auto;
     clear:left;
     position: relative;
-    margin-top: 5px;
+    margin-top: 2px;
     border-radius: 3px;
+
 
 }
 
@@ -2514,23 +2616,52 @@ li.complete_user_entry,
 li.complete_group_entry,
 li.complete_user_entry_temp
 {
-    padding: 8px 5px 8px 25px !important;
     clear: left;
     background-color: rgba(255, 255, 255, 0.7);
-    background-image: url("../images/mimes/16/user.png");
-    background-repeat: no-repeat;
-    background-position: 4px 5px;
     border-bottom: 1px solid #F1F1EF;
 }
 
+div.editable_users_list div.user_entry_rights{
+    float: right;
+    padding-top: 8px;
+    padding-right: 4px;
+}
+.no-flexbox div.editable_users_list div.user_entry_rights{
+    padding-top: 4px;
+}
+
+li.complete_user_entry,
 li.complete_group_entry,
-.editable_users_list div.group_entry
+li.complete_user_entry_temp{
+    padding: 0 !important;
+}
+
+
+.editable_users_list div.user_entry span.user_entry_label,
+li.complete_user_entry span.user_entry_label,
+li.complete_group_entry span.user_entry_label,
+li.complete_user_entry_temp span.user_entry_label
+{
+    display: inline-block;
+    padding: 8px 5px 8px 25px !important;
+    background-image: url("../images/mimes/16/user.png");
+    background-repeat: no-repeat;
+    background-position: 4px 5px;
+
+}
+
+li.complete_user_entry{
+
+}
+
+li.complete_group_entry span.user_entry_label,
+.editable_users_list div.group_entry span.user_entry_label
 {
     background-image: url("../images/mimes/16/users-folder.png");
 }
 
-li.complete_user_entry_temp,
-.editable_users_list div.user_entry_temp
+li.complete_user_entry_temp span.user_entry_label,
+.editable_users_list div.user_entry_temp span.user_entry_label
 {
     background-image: url("../images/mimes/16/user_shared.png");
 }
@@ -2550,6 +2681,15 @@ li.complete_user_entry_temp,
     cursor: pointer;
 }
 
+span.user_entry_check{
+    display: inline-block;
+    padding: 0 5px;
+}
+
+.editable_users_list.user_entry_check_hidden span.user_entry_check{
+    display: none;
+}
+
 #create_shared_user{
     width: 84%;
     background-color: #EEE;
@@ -2562,6 +2702,28 @@ li.complete_user_entry_temp,
     top: -1px;
 }
 
+.editable_users_header{
+    float: right;
+    margin-top: 2px;
+    font-style: italic;
+    font-size: 9px;
+    color: #AAA;
+    padding: 2px;
+}
+
+.editable_users_header span,
+div.user_entry span.cbContainer
+{
+    display: inline-block;
+    padding: 0 2px;
+    width: 30px;
+    text-align: center;
+    cursor: pointer;
+}
+
+div.user_entry span.cbContainer{
+
+}
 /***********************/
 /* EDITORS & DIAPORAMA */
 /***********************/
@@ -2991,6 +3153,19 @@ div.menu a {
 	box-shadow : 5px 5px 20px rgba(100, 100, 100, 0.5);
 }
 
+.dialogBox.css_boxshadow{
+    -moz-box-shadow : 5px 5px 60px #303030;
+    -webkit-box-shadow : 5px 5px 60px #303030;
+	box-shadow : 5px 5px 60px #303030;
+}
+
+div.dialogBox div.dialogBox.css_boxshadow{
+    -moz-box-shadow: 2px 2px 10px #4C5B6B;
+    -webkit-box-shadow: 2px 2px 10px #4C5B6B;
+    box-shadow: 2px 2px 10px #4C5B6B;
+    border: 1px solid white;
+}
+
 /****************************************/
 /* WEBDAV PREFERENCES                    */
 /****************************************/
@@ -3044,7 +3219,7 @@ td.ip_geo_cell{
 
 .pluginfo_list li {
     list-style: none;
-    padding: 2px 0;
+    padding: 5px 2px;
     overflow: hidden;
 }
 
@@ -3052,4 +3227,90 @@ td.ip_geo_cell{
     display: inline-block;
     width: 90px;
     font-weight: bold;
+}
+
+/************************************************/
+/*     NICE ROUNDED PURE-CSS TABS                                     */
+/*     From http://css-tricks.com/better-tabs-with-round-out-borders/ */
+/************************************************/
+.tabrow {
+    list-style: none;
+    margin: 10px 0 0px;
+    padding: 0 20px;
+    line-height: 24px;
+    height: 26px;
+    overflow: hidden;
+    font-size: 13px;
+    font-family: Verdana;
+    position: relative;
+}
+
+.tabpanes {
+    background-color: #ffffff;
+}
+
+.tabrow li {
+    border: 1px solid #AAA;
+    background: #D1D1D1;
+    background: -o-linear-gradient(top, #ECECEC 50%, #D1D1D1 100%);
+    background: -ms-linear-gradient(top, #ECECEC 50%, #D1D1D1 100%);
+    background: -moz-linear-gradient(top, #ECECEC 50%, #D1D1D1 100%);
+    background: -webkit-linear-gradient(top, #ECECEC 50%, #D1D1D1 100%);
+    background: linear-gradient(top, #ECECEC 50%, #D1D1D1 100%);
+    display: inline-block;
+    position: relative;
+    z-index: 0;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    box-shadow: 0 3px 3px rgba(0, 0, 0, 0.4), inset 0 1px 0 #FFF;
+    text-shadow: 0 1px #FFF;
+    margin: 0 -5px;
+    padding: 0 20px;
+}
+.tabrow span {
+    color: #555;
+    text-decoration: none;
+    cursor: pointer;
+}
+.tabrow li.selected {
+    background: #FFF;
+    color: #333;
+    z-index: 2;
+    border-bottom-color: #FFF;
+}
+.tabrow:before {
+    position: absolute;
+    content: " ";
+    width: 100%;
+    bottom: 0;
+    left: 0;
+    border-bottom: 1px solid #AAA;
+    z-index: 1;
+}
+.tabrow li:before,
+.tabrow li:after {
+    border: 1px solid #AAA;
+    position: absolute;
+    bottom: -1px;
+    width: 5px;
+    height: 5px;
+    content: " ";
+}
+.tabrow li:before {
+    left: -6px;
+    border-bottom-right-radius: 6px;
+    border-width: 0 1px 1px 0;
+    box-shadow: 2px 2px 0 #D1D1D1;
+}
+.tabrow li:after {
+    right: -6px;
+    border-bottom-left-radius: 6px;
+    border-width: 0 0 1px 1px;
+    box-shadow: -2px 2px 0 #D1D1D1;
+}
+.tabrow li.selected:before {
+    box-shadow: 2px 2px 0 #FFF;
+}
+.tabrow li.selected:after {
+    box-shadow: -2px 2px 0 #FFF;
 }

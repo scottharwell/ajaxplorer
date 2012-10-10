@@ -654,13 +654,24 @@ class AJXP_Utils
      * @static
      * @return string
      */
-    static function detectServerURL()
+    static function detectServerURL($withURI = false)
     {
+        $setUrl = ConfService::getCoreConf("SERVER_URL");
+        if(!empty($setUrl)){
+            return $setUrl;
+        }
+        if(php_sapi_name() == "cli"){
+            AJXP_Logger::debug("WARNING, THE SERVER_URL IS NOT SET, WE CANNOT BUILD THE MAIL ADRESS WHEN WORKING IN CLI");
+        }
         $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http');
         $port = (($protocol === 'http' && $_SERVER['SERVER_PORT'] == 80 || $protocol === 'https' && $_SERVER['SERVER_PORT'] == 443)
                 ? "" : ":" . $_SERVER['SERVER_PORT']);
         $name = $_SERVER["SERVER_NAME"];
-        return "$protocol://$name$port";
+        if(!$withURI){
+            return "$protocol://$name$port";
+        }else{
+            return "$protocol://$name$port".dirname($_SERVER["REQUEST_URI"]);
+        }
     }
 
     /**
@@ -1171,6 +1182,75 @@ class AJXP_Utils
         $current = ini_get($paramName);
         if ($current == $paramValue) return;
         @ini_set($paramName, $paramValue);
+    }
+
+    public static function parseStandardFormParameters(&$repDef, &$options, $userId = null, $prefix = "DRIVER_OPTION_", $binariesContext = null){
+
+        if($binariesContext == null){
+            $binariesContext = array("USER" => AuthService::getLoggedUser()->getId());
+        }
+        $replicationGroups = array();
+        foreach ($repDef as $key => $value)
+        {
+            $value = AJXP_Utils::sanitize(SystemTextEncoding::magicDequote($value));
+            if( ( ( !empty($prefix) &&  strpos($key, $prefix)!== false && strpos($key, $prefix)==0 ) || empty($prefix) )
+                && strpos($key, "ajxptype") === false
+                && strpos($key, "_original_binary") === false
+                && strpos($key, "_replication") === false
+                && strpos($key, "_checkbox") === false){
+                if(isSet($repDef[$key."_ajxptype"])){
+                    $type = $repDef[$key."_ajxptype"];
+                    if($type == "boolean"){
+                        $value = ($value == "true"?true:false);
+                    }else if($type == "integer"){
+                        $value = intval($value);
+                    }else if($type == "array"){
+                        $value = explode(",", $value);
+                    }else if($type == "password" && $userId!=null){
+                        if (trim($value != "") && function_exists('mcrypt_encrypt'))
+                        {
+                            // The initialisation vector is only required to avoid a warning, as ECB ignore IV
+                            $iv = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_RAND);
+                            // We encode as base64 so if we need to store the result in a database, it can be stored in text column
+                            $value = base64_encode(mcrypt_encrypt(MCRYPT_RIJNDAEL_256,  md5($userId."\1CDAFx¨op#"), $value, MCRYPT_MODE_ECB, $iv));
+                        }
+                    }else if($type == "binary" && $binariesContext != null){
+                        if(!empty($value)){
+                            $file = AJXP_Utils::getAjxpTmpDir()."/".$value;
+                            if(file_exists($file)){
+                                $id=empty($repDef[$key."_original_binary"]) ? $repDef[$key."_original_binary"] : null;
+                                $id=ConfService::getConfStorageImpl()->saveBinary($binariesContext, $file, $id);
+                                $value = $id;
+                            }
+                        }else if(!empty($repDef[$key."_original_binary"])){
+                            $value = $repDef[$key."_original_binary"];
+                        }
+                    }
+                    unset($repDef[$key."_ajxptype"]);
+                }
+                if(isSet($repDef[$key."_checkbox"])){
+                    $checked = $repDef[$key."_checkbox"] == "checked";
+                    unset($repDef[$key."_checkbox"]);
+                    if(!$checked) continue;
+                }
+                if(isSet($repDef[$key."_replication"])){
+                    $repKey = $repDef[$key."_replication"];
+                    if(!is_array($replicationGroups[$repKey])) $replicationGroups[$repKey] = array();
+                    $replicationGroups[$repKey][] = $key;
+                }
+                $options[substr($key, strlen($prefix))] = $value;
+                unset($repDef[$key]);
+            }else{
+                if($key == "DISPLAY"){
+                    $value = SystemTextEncoding::fromUTF8(AJXP_Utils::securePath($value));
+                }
+                $repDef[$key] = $value;
+            }
+        }
+        // DO SOMETHING WITH REPLICATED PARAMETERS?
+        if(count($replicationGroups)){
+
+        }
     }
 
 }

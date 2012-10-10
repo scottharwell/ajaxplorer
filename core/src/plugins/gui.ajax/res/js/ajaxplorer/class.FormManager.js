@@ -22,12 +22,11 @@
  * An simple form generator 
  */
 Class.create("FormManager", {
-		
-	/**
-	 * Constructor
-	 */
-	initialize: function(){
-		
+
+    modalParent : null,
+
+	initialize: function(modalParent){
+        if(modalParent) this.modalParent = modalParent;
 	},
 
     parseParameters : function (xmlDocument, query){
@@ -39,15 +38,17 @@ Class.create("FormManager", {
     },
 
 	parameterNodeToHash : function(paramNode){
-		var paramsAtts = $A(['name', 'group', 'replicationGroup', 'type', 'label', 'description', 'default', 'mandatory', 'choices']);
+        var paramsAtts = paramNode.attributes;
 		var paramsHash = new Hash();
-		paramsAtts.each(function(attName){
-            var value = (XPathGetSingleNodeText(paramNode, '@'+attName) || '');
+        for(var i=0; i<paramsAtts.length; i++){
+            var attName = paramsAtts.item(i).nodeName;
+            var value = paramsAtts.item(i).nodeValue;
             if( (attName == "label" || attName == "description" || attName == "group") && MessageHash[value] ){
                 value = MessageHash[value];
             }
 			paramsHash.set(attName, value);
-		});
+		}
+        paramsHash.set("xmlNode", paramNode);
 		return paramsHash;
 	},
 	
@@ -77,13 +78,13 @@ Class.create("FormManager", {
 				defaultValue = values.get(name);
 			}
 			var element;
-			var disabledString = (disabled?' disabled="true" ':'');
+			var disabledString = (disabled || param.get('readonly')?' disabled="true" ':'');
             var commonAttributes = {
                 'name'                  : name,
                 'data-ajxp_type'        : type,
                 'data-ajxp_mandatory'   : (mandatory?'true':'false')
             };
-            if(disabled){
+            if(disabled || param.get('readonly')){
                 commonAttributes['disabled'] = 'true';
             }
 			if(type == 'string' || type == 'integer' || type == 'array'){
@@ -103,26 +104,59 @@ Class.create("FormManager", {
 				element = '<input type="radio" data-ajxp_type="'+type+'" class="SF_box" name="'+name+'" value="true" '+(selectTrue?'checked':'')+''+disabledString+'> '+MessageHash[440];
 				element = element + '<input type="radio" data-ajxp_type="'+type+'" class="SF_box" name="'+name+'" '+(selectFalse?'checked':'')+' value="false"'+disabledString+'> '+MessageHash[441];
 				element = '<div class="SF_input">'+element+'</div>';
-			}else if(type == 'select' && param.get('choices')){
+			}else if(type == 'select'){
                 var choices, json_list;
-                if(param.get("choices").startsWith("json_list:")){
-                    choices = ["loading|Loading..."];
-                    json_list = param.get("choices").split(":")[1];
+                if(Object.isString(param.get("choices"))){
+                    if(param.get("choices").startsWith("json_list:")){
+                        choices = ["loading|Loading..."];
+                        json_list = param.get("choices").split(":")[1];
+                    }else if(param.get("choices") == "AJXP_AVAILABLE_LANGUAGES"){
+                        var object = window.ajxpBootstrap.parameters.get("availableLanguages");
+                        choices = [];
+                        for(var key in object){
+                            choices.push(key + "|" + object[key]);
+                        }
+                    }else{
+                        choices = param.get('choices').split(",");
+                    }
                 }else{
-                    choices = param.get('choices').split(",");
+                    choices = param.get("choices");
                 }
-                element = '<select class="SF_input" name="'+name+'" data-ajxp_mandatory="'+(mandatory?'true':'false')+'" >';
-                if(!mandatory) element += '<option value=""></option>';
+                if(!choices) choices = [];
+                var multiple = param.get("multiple") ? "multiple='true'":"";
+                element = '<select class="SF_input" name="'+name+'" data-ajxp_mandatory="'+(mandatory?'true':'false')+'" '+multiple+'>';
+                if(!mandatory && !multiple) element += '<option value=""></option>';
                 for(var k=0;k<choices.length;k++){
                     var cLabel, cValue;
                     var cSplit = choices[k].split("|");
                     cValue = cSplit[0];
                     if(cSplit.length > 1 ) cLabel = cSplit[1];
                     else cLabel = cValue;
-                    var selectedString = (defaultValue == cValue ? ' selected' : '');
+                    var selectedString = '';
+                    if(param.get("multiple")){
+                        $A(defaultValue.split(",")).each(function(defV){
+                            if(defV == cValue) selectedString = ' selected';
+                        });
+                    }else{
+                        selectedString = (defaultValue == cValue ? ' selected' : '');
+                    }
                     element += '<option value="'+cValue+'"'+selectedString+'>'+cLabel+'</option>';
                 }
                 element += '</select>';
+            }else if(type == "image" && param.get("uploadAction")){
+                if(defaultValue){
+                    var conn = new Connexion();
+                    var imgSrc = conn._baseUrl + "&get_action=" +param.get("loadAction") + "&binary_id=" + defaultValue;
+                    if(param.get("binary_context")){
+                        imgSrc += "&" + param.get("binary_context");
+                    }
+                }else if(param.get("defaultImage")){
+                    imgSrc = param.get("defaultImage");
+                }
+                element = "<div class='SF_image_block'><img src='"+imgSrc+"' class='SF_image small'><span class='SF_image_link'>"+
+                    (param.get("uploadLegend")?param.get("uploadLegend"):"update")+"</span>" +
+                    "<input type='hidden' name='"+param.get("name")+"' data-ajxp_type='binary'>" +
+                    "<input type='hidden' name='"+param.get("name")+"_original_binary' value='"+ defaultValue +"' data-ajxp_type='string'></div>";
             }
 			var div = new Element('div', {className:"SF_element" + (addFieldCheckbox?" SF_elementWithCheckbox":"")});
 
@@ -137,6 +171,12 @@ Class.create("FormManager", {
             }
             // INSERT ELEMENT
             div.insert(element);
+            if(type == "image"){
+                var imgLink = div.down("span.SF_image_link");
+                imgLink.observe("click", function(){
+                    this.createUploadForm(form, div.down('img'), param);
+                }.bind(this));
+            }
 			if(desc){
 				modal.simpleTooltip(div.select('.SF_label')[0], '<div class="simple_tooltip_title">'+label+'</div>'+desc);
 			}
@@ -180,7 +220,9 @@ Class.create("FormManager", {
                 var gDiv = groupDivs.get(group) || new Element('div', {className:'accordion_content'});
                 b.insert(div);
                 var lab = div.down('.SF_label');
-                lab.setStyle({width:parseInt(39*(Prototype.Browser.IE?340:320)/100)+'px'});
+                var ref = parseInt(form.getWidth()) + (Prototype.Browser.IE?40:0);
+                lab.setStyle({fontSize:'11px'});
+                lab.setStyle({width:parseInt(39*ref/100)+'px'});
                 if( parseInt(lab.getHeight()) > 30){
                     lab.next().setStyle({marginTop:'20px'});
                 }
@@ -264,13 +306,44 @@ Class.create("FormManager", {
             });
         }
 	},
-	
+
+    createUploadForm : function(modalParent, imgSrc, param){
+        if(this.modalParent) modalParent = this.modalParent;
+        var conn = new Connexion();
+        var url = conn._baseUrl + "&get_action=" + param.get("uploadAction");
+        if(param.get("binary_context")){
+            url += "&" + param.get("binary_context");
+        }
+        if(!$("formManager_hidden_iframe")){
+            $('hidden_frames').insert(new Element("iframe", {id:"formManager_hidden_iframe", name:"formManager_hidden_iframe"}));
+        }
+        var paramName = param.get("name");
+        var pane = new Element("div");
+        pane.update("<form id='formManager_uploader' enctype='multipart/form-data' target='formManager_hidden_iframe' method='post' action='"+url+"'>" +
+            "<div class='dialogLegend'>Select an image on your computer</div> " +
+            "<input type='file' name='userfile' style='width: 270px;'>" +
+            "</form>");
+        modal.showSimpleModal(modalParent, pane, function(){
+            window.formManagerHiddenIFrameSubmission = function(result){
+                imgSrc.src = conn._baseUrl + "&get_action=" + param.get("loadAction")+"&tmp_file="+result.trim();
+                imgSrc.next("input[type='hidden']").setValue(result.trim());
+                imgSrc.next("input[type='hidden']").setAttribute("data-ajxp_type", "binary");
+                window.formManagerHiddenIFrameSubmission = null;
+            };
+            pane.down("#formManager_uploader").submit();
+            return true;
+        }.bind(this) , function(){
+            return true;
+        }.bind(this) );
+
+    },
+
 	serializeParametersInputs : function(form, parametersHash, prefix, skipMandatoryWarning){
 		prefix = prefix || '';
 		var missingMandatory = $A();
         var checkboxesActive = false;
 		form.select('input,textarea').each(function(el){
-			if(el.type == "text" || el.type == "password" || el.nodeName.toLowerCase() == 'textarea'){
+			if(el.type == "text" || el.type == "hidden" || el.type == "password" || el.nodeName.toLowerCase() == 'textarea'){
 				if(el.getAttribute('data-ajxp_mandatory') == 'true' && el.value == '' && !el.disabled){
 					missingMandatory.push(el);
 				}

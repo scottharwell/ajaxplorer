@@ -68,23 +68,25 @@ class AJXP_Controller{
 		$loggedUser = AuthService::getLoggedUser();
 		if($loggedUser == null) return false;
 		$crtRepo = ConfService::getRepository();
-		$crtRepoId = "ajxp.all";
+		$crtRepoId = AJXP_REPO_SCOPE_ALL; // "ajxp.all";
 		if($crtRepo != null && is_a($crtRepo, "Repository")){
 			$crtRepoId = $crtRepo->getId();
 		}
-		$actionRights = $loggedUser->getSpecificActionsRights($crtRepoId);
+		$actionRights = $loggedUser->mergedRole->listActionsStatesFor($crtRepo);
 		$changes = false;
 		$xPath = new DOMXPath($registry);
-		foreach ($actionRights as $actionName => $enabled){
-			if($enabled !== false) continue;
-			$actions = $xPath->query("actions/action[@name='$actionName']");		
-			if(!$actions->length){
-				continue;
-			}
-			$action = $actions->item(0);
-			$action->parentNode->removeChild($action);
-			$changes = true;
-		}
+        foreach($actionRights as $pluginName => $actions){
+            foreach ($actions as $actionName => $enabled){
+                if($enabled !== false) continue;
+                $actions = $xPath->query("actions/action[@name='$actionName']");
+                if(!$actions->length){
+                    continue;
+                }
+                $action = $actions->item(0);
+                $action->parentNode->removeChild($action);
+                $changes = true;
+            }
+        }
 		return $changes;
 	}
 
@@ -349,7 +351,7 @@ class AJXP_Controller{
      * @param array $args
      * @return
      */
-	public static function applyHook($hookName, $args){
+	public static function applyHook($hookName, $args, $forceNonDefer = false){
 		$xPath = self::initXPath();
 		$callbacks = $xPath->query("hooks/serverCallback[@hookName='$hookName']");
 		if(!$callbacks->length) return ;
@@ -362,6 +364,7 @@ class AJXP_Controller{
           	}
             //$fake1; $fake2; $fake3;
             $defer = ($callback->attributes->getNamedItem("defer") != null && $callback->attributes->getNamedItem("defer")->nodeValue == "true");
+            if($defer && $forceNonDefer) $defer = false;
             self::applyCallback($xPath, $callback, $fake1, $fake2, $fake3, $args, $defer);
 		}
 	}	

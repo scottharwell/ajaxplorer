@@ -41,7 +41,7 @@ class AuthService
 	/**
      * Whether the current auth driver supports password update or not
      * @static
-     * @return void
+     * @return bool
      */
 	static function changePasswordEnabled()
 	{
@@ -101,7 +101,7 @@ class AuthService
      * Call the preLogUser() functino on the auth driver implementation
      * @static
      * @param string $remoteSessionId
-     * @return
+     * @return void
      */
 	static function preLogUser($remoteSessionId = "")
 	{
@@ -150,7 +150,6 @@ class AuthService
      */
     static function checkBruteForceLogin(&$loginArray)
     {
-    	$serverAddress = "";
     	if(isSet($_SERVER['REMOTE_ADDR'])){
     		$serverAddress = $_SERVER['REMOTE_ADDR'];
     	}else{
@@ -229,6 +228,31 @@ class AuthService
         setcookie("AjaXplorer-remember", "", time()-3600);
     }
 
+    static function logTemporaryUser($parentUserId, $temporaryUserId){
+        $parentUserId = self::filterUserSensitivity($parentUserId);
+        $temporaryUserId = self::filterUserSensitivity($temporaryUserId);
+        $confDriver = ConfService::getConfStorageImpl();
+        $parentUser = $confDriver->createUserObject($parentUserId);
+        $temporaryUser = $confDriver->createUserObject($temporaryUserId);
+        $temporaryUser->mergedRole = $parentUser->mergedRole;
+        $temporaryUser->setGroupPath($parentUser->getGroupPath());
+        $temporaryUser->setParent($parentUserId);
+        $temporaryUser->setResolveAsParent(true);
+        AJXP_Logger::logAction("Log in", array("temporary user" => $temporaryUserId, "owner" => $parentUserId));
+        self::updateUser($temporaryUser);
+    }
+
+    static function clearTemporaryUser($temporaryUserId){
+        AJXP_Logger::logAction("Log out", array("temporary user"), $temporaryUserId);
+        if(isSet($_SESSION["AJXP_USER"])){
+            AJXP_Logger::logAction("Log Out");
+            unset($_SESSION["AJXP_USER"]);
+            if(ConfService::getCoreConf("SESSION_SET_CREDENTIALS", "auth")){
+                AJXP_Safe::clearCredentials();
+            }
+        }
+    }
+
     /**
      * Log the user from its credentials
      * @static
@@ -300,6 +324,9 @@ class AuthService
         }
 
         $user = $confDriver->createUserObject($user_id);
+        if($user->getLock() == "logout"){
+            return -1;
+        }
 		if($authDriver->isAjxpAdmin($user_id)){
 			$user->setAdmin(true);
 		}
@@ -309,7 +336,7 @@ class AuthService
 		}
 		else{
 			if(!$user->hasParent() && $user_id != "guest"){
-				//$user->setRight("ajxp_shared", "rw");
+				//$user->setAcl("ajxp_shared", "rw");
 			}
 		}
 		$_SESSION["AJXP_USER"] = $user;
@@ -424,15 +451,15 @@ class AuthService
 	
 	/**
      * Update a user with admin rights and return it
-	* @param AJXP_User $adminUser
-     * @return AJXP_User
+	* @param AbstractAjxpUser $adminUser
+     * @return AbstractAjxpUser
 	*/
 	static function updateAdminRights($adminUser)
 	{
 		foreach (ConfService::getRepositoriesList() as $repoId => $repoObject)
 		{
             if(!self::allowedForCurrentGroup($repoObject, $adminUser)) continue;
-			$adminUser->setRight($repoId, "rw");
+			$adminUser->personalRole->setAcl($repoId, "rw");
 		}
 		$adminUser->save();
 		return $adminUser;
@@ -450,22 +477,42 @@ class AuthService
                 if(!self::allowedForCurrentGroup($repoObject, $userObject)) continue;
                 if($repoObject->isTemplate) continue;
 				if($repoObject->getDefaultRight() != ""){
-					$userObject->setRight($repositoryId, $repoObject->getDefaultRight());
+					$userObject->personalRole->setAcl($repositoryId, $repoObject->getDefaultRight());
 				}
 			}
-            foreach(AuthService::getRolesList() as $roleId => $roleObject){
+            foreach(AuthService::getRolesList(array(), true) as $roleId => $roleObject){
                 if(!self::allowedForCurrentGroup($roleObject, $userObject)) continue;
-                if($roleObject->isDefault()){
+                if($userObject->getProfile() == "shared" && $roleObject->autoAppliesTo("shared")){
+                    $userObject->addRole($roleId);
+                }else if($roleObject->autoAppliesTo("standard")){
                     $userObject->addRole($roleId);
                 }
             }
 		}
 	}
+
+    /**
+     * @static
+     * @param AbstractAjxpUser $userObject
+     */
+    static function updateAutoApplyRole(&$userObject){
+        foreach(AuthService::getRolesList(array(), true) as $roleId => $roleObject){
+            if(!self::allowedForCurrentGroup($roleObject, $userObject)) continue;
+            if($roleObject->autoAppliesTo($userObject->getProfile()) || $roleObject->autoAppliesTo("all")){
+                $userObject->addRole($roleId);
+            }
+        }
+    }
+
+    static function updateAuthProvidedData(&$userObject){
+        ConfService::getAuthDriverImpl()->updateUserObject($userObject);
+    }
+
 	/**
      * Use driver implementation to check whether the user exists or not.
      * @static
      * @param $userId
-     * @return void
+     * @return bool
      */
 	static function userExists($userId)
 	{
@@ -565,6 +612,7 @@ class AuthService
 		$authDriver = ConfService::getAuthDriverImpl();
 		$confDriver = ConfService::getConfStorageImpl();
 		$authDriver->createUser($userId, $userPass);
+        $user = null;
 		if($isAdmin){
 			$user = $confDriver->createUserObject($userId);
 			$user->setAdmin(true);			
@@ -590,7 +638,7 @@ class AuthService
 	}
 
     /**
-     * Delete a user in the auth driver impl
+     * Delete a user in the auth/conf driver impl
      * @static
      * @param $userId
      * @return bool
@@ -602,11 +650,10 @@ class AuthService
 		$authDriver = ConfService::getAuthDriverImpl();
 		$authDriver->deleteUser($userId);
 		$subUsers = array();
-		AJXP_User::deleteUser($userId, $subUsers);
+		ConfService::getConfStorageImpl()->deleteUser($userId, $subUsers);
 		foreach ($subUsers as $deletedUser){
 			$authDriver->deleteUser($deletedUser);
 		}
-
         AJXP_Controller::applyHook("user.after_delete", array($userId));
         AJXP_Logger::logAction("Delete User", array("user_id"=>$userId, "sub_user" => implode(",", $subUsers)));
 		return true;
@@ -633,6 +680,10 @@ class AuthService
 
     static function createGroup($baseGroup, $groupName, $groupLabel){
         ConfService::getConfStorageImpl()->createGroup(rtrim(self::filterBaseGroup($baseGroup), "/")."/".$groupName, $groupLabel);
+    }
+
+    static function deleteGroup($baseGroup, $groupName){
+        ConfService::getConfStorageImpl()->deleteGroup(rtrim(self::filterBaseGroup($baseGroup), "/")."/".$groupName);
     }
 
     static function getChildrenUsers($parentUserId){
@@ -668,7 +719,7 @@ class AuthService
 		foreach (array_keys($users) as $userId)
 		{
 			if(($userId == "guest" && !ConfService::getCoreConf("ALLOW_GUEST_BROWSING", "auth")) || $userId == "ajxp.admin.users" || $userId == "") continue;
-            if($regexp != null && !$authDriver->supportsUsersPagination() && !preg_match($regexp, $userId)) continue;
+            if($regexp != null && !$authDriver->supportsUsersPagination() && !preg_match("/$regexp/i", $userId)) continue;
 			$allUsers[$userId] = $confDriver->createUserObject($userId);
             if($paginated){
                 // Make sure to reload all children objects
@@ -713,13 +764,13 @@ class AuthService
 	 *
 	 * @param string $roleId
      * @param boolean $createIfNotExists
-	 * @return AjxpRole
+	 * @return AJXP_Role
 	 */
 	static function getRole($roleId, $createIfNotExists = false){
 		$roles = self::getRolesList();
 		if(isSet($roles[$roleId])) return $roles[$roleId];
         if($createIfNotExists){
-            $role = new AjxpRole($roleId);
+            $role = new AJXP_Role($roleId);
             if(self::getLoggedUser()!=null && self::getLoggedUser()->getGroupPath()!=null){
                 $role->setGroupPath(self::getLoggedUser()->getGroupPath());
             }
@@ -732,12 +783,10 @@ class AuthService
 	/**
 	 * Create or update role
 	 *
-	 * @param AjxpRole $roleObject
+	 * @param AJXP_Role $roleObject
 	 */
-	static function updateRole($roleObject){
-		$roles = self::getRolesList();
-		$roles[$roleObject->getId()] = $roleObject;
-		self::saveRolesList($roles);
+	static function updateRole($roleObject, $userObject = null){
+        ConfService::getConfStorageImpl()->updateRole($roleObject, $userObject);
 	}
 	/**
      * Delete a role by its id
@@ -746,33 +795,49 @@ class AuthService
      * @return void
      */
 	static function deleteRole($roleId){
-		$roles = self::getRolesList();
-		if(isSet($roles[$roleId])){
-			unset($roles[$roleId]);
-			self::saveRolesList($roles);
-		}
+        ConfService::getConfStorageImpl()->deleteRole($roleId);
 	}
+
+    static function filterPluginParameters($pluginId, $params, $repoId = null){
+        $logged = self::getLoggedUser();
+        if($logged == null) return $params;
+        if($repoId == null){
+            $repo = ConfService::getRepository();
+            if($repo!=null) $repoId = $repo->getId();
+        }
+        if($logged == null) return $params;
+        $roleParams = $logged->mergedRole->listParameters();
+        if(iSSet($roleParams[AJXP_REPO_SCOPE_ALL][$pluginId])){
+            $params = array_merge($params, $roleParams[AJXP_REPO_SCOPE_ALL][$pluginId]);
+        }
+        if($repoId != null && isSet($roleParams[$repoId][$pluginId])){
+            $params = array_merge($params, $roleParams[$repoId][$pluginId]);
+        }
+        return $params;
+    }
+
 	/**
      * Get all defined roles
      * @static
-     * @return array
+     * @param array $roleIds
+     * @param boolean $excludeReserved,
+     * @return AJXP_Role[]
      */
-	static function getRolesList(){
-		if(isSet(self::$roles)) return self::$roles;
+	static function getRolesList($roleIds = array(), $excludeReserved = false){
+		//if(isSet(self::$roles)) return self::$roles;
 		$confDriver = ConfService::getConfStorageImpl();
-		self::$roles = $confDriver->listRoles();
+		self::$roles = $confDriver->listRoles($roleIds, $excludeReserved);
+        $repoList = null;
+        foreach(self::$roles as $roleId => $roleObject){
+            if(is_a($roleObject, "AjxpRole")){
+                if($repoList == null) $repoList = ConfService::getRepositoriesList();
+                $newRole = new AJXP_Role($roleId);
+                $newRole->migrateDeprectated($repoList, $roleObject);
+                self::$roles[$roleId] = $newRole;
+                self::updateRole($newRole);
+            }
+        }
 		return self::$roles;
-	}
-	/**
-     * Update the roles list
-     * @static
-     * @param array $roles
-     * @return void
-     */
-	static function saveRolesList($roles){
-		$confDriver = ConfService::getConfStorageImpl();
-		$confDriver->saveRoles($roles);
-		self::$roles = $roles;		
 	}
 
     static function allowedForCurrentGroup(AjxpGroupPathProvider $provider, $userObject = null){
@@ -800,5 +865,3 @@ class AuthService
     }
 
 }
-
-?>

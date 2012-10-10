@@ -42,6 +42,7 @@ class AJXP_Plugin implements Serializable{
     protected $enabled;
 	protected $actions;
 	protected $registryContributions = array();
+    protected $contributionsLoaded = false;
 	protected $options; // can be passed at init time
 	protected $pluginConf; // can be passed at load time
 	protected $pluginConfDefinition;
@@ -72,7 +73,8 @@ class AJXP_Plugin implements Serializable{
         "externalFilesAppended",
         "enabled",
 		"actions", 
-		"registryContributions", 
+		"registryContributions",
+        "contributionsLoaded",
 		"mixins",
         "streamData",
 		"options", "pluginConf", "pluginConfDefinition", "dependencies", "loadingState", "manifestXML");
@@ -92,14 +94,50 @@ class AJXP_Plugin implements Serializable{
 		$this->actions = array();
 		$this->dependencies = array();
 	}
+
+    protected function getPluginWorkDir($check = false){
+        $d = AJXP_DATA_PATH.DIRECTORY_SEPARATOR."plugins".DIRECTORY_SEPARATOR.$this->getId();
+        if(!$check) return $d;
+        if(!is_dir($d)){
+            $res = @mkdir($d, 0755, true);
+            if(!$res) throw new Exception("Error while creating plugin directory for ".$this->getId());
+        }
+        return $d;
+    }
+
+    protected function getPluginCacheDir($shared = false, $check = false){
+        $d = ($shared ? AJXP_SHARED_CACHE_DIR : AJXP_CACHE_DIR).DIRECTORY_SEPARATOR."plugins".DIRECTORY_SEPARATOR.$this->getId();
+        if(!$check) return $d;
+        if(!is_dir($d)){
+            $res = @mkdir($d, 0755, true);
+            if(!$res) throw new Exception("Error while creating plugin cache directory for ".$this->getId());
+        }
+        return $d;
+    }
+
     /**
      * @param $options
      * @return void
      */
 	public function init($options){
 		$this->options = $options;
-		$this->loadRegistryContributions();
+		//$this->loadRegistryContributions();
 	}
+
+    protected function getFilteredOption($optionName, $repositoryScope = AJXP_REPO_SCOPE_ALL){
+        if(isSet($this->options[$optionName])){
+            if(AuthService::getLoggedUser() != null){
+                return AuthService::getLoggedUser()->mergedRole->filterParameterValue(
+                    $this->getId(),
+                    $optionName,
+                    $repositoryScope,
+                    $this->options[$optionName]
+                );
+            }
+            return $this->options[$optionName];
+        }
+        return null;
+    }
 	/**
 	 * Perform initialization checks, and throw exception if problems found.
 	 * @throws Exception
@@ -149,8 +187,10 @@ class AJXP_Plugin implements Serializable{
 				}
 				$this->initXmlContributionFile($filename, $include, $exclude, $dry);
 			}else{
-				$this->registryContributions[]=$regNode;
-				if(!$dry) $this->parseSpecificContributions($regNode);
+                if(!$dry) {
+                    $this->registryContributions[]=$regNode;
+                    $this->parseSpecificContributions($regNode);
+                }
 			}
 		}
 		// add manifest as a "plugins" (remove parsed contrib)
@@ -163,8 +203,11 @@ class AJXP_Plugin implements Serializable{
 		if($regNodeParent->length){
 			$manifestNode->removeChild($regNodeParent->item(0));
 		}
-		$this->registryContributions[]=$pluginContrib->documentElement;
-        if(!$dry) $this->parseSpecificContributions($pluginContrib->documentElement);
+        if(!$dry) {
+            $this->registryContributions[]=$pluginContrib->documentElement;
+            $this->parseSpecificContributions($pluginContrib->documentElement);
+            $this->contributionsLoaded = true;
+        }
 	}
 
 	/**
@@ -178,8 +221,10 @@ class AJXP_Plugin implements Serializable{
 		$contribDoc = new DOMDocument();
 		$contribDoc->load(AJXP_INSTALL_PATH."/".$xmlFile);
 		if(!is_array($include) && !is_array($exclude)){
-			$this->registryContributions[] = $contribDoc->documentElement;
-            if(!$dry) $this->parseSpecificContributions($contribDoc->documentElement);
+            if(!$dry) {
+                $this->registryContributions[] = $contribDoc->documentElement;
+                $this->parseSpecificContributions($contribDoc->documentElement);
+            }
 			return;
 		}
 		$xPath = new DOMXPath($contribDoc);
@@ -231,8 +276,8 @@ class AJXP_Plugin implements Serializable{
 				$node->appendChild($childNode);
                 if($dry) $localRegParent->appendChild($localRegParent->ownerDocument->importNode($childNode, true));
 			}
-			$this->registryContributions[] = $node;
             if(!$dry) {
+                $this->registryContributions[] = $node;
                 $this->parseSpecificContributions($node);
             }else{
                 $this->reloadXPath();
@@ -292,6 +337,10 @@ class AJXP_Plugin implements Serializable{
 		}catch (Exception $e){
 			throw $e;
 		}
+        $id = $this->manifestDoc->documentElement->getAttribute("id");
+        if(empty($id) || $id != $this->getId()){
+            $this->manifestDoc->documentElement->setAttribute("id", $this->getId());
+        }
 		$this->xPath = new DOMXPath($this->manifestDoc);
 		$this->loadMixins();
         $this->detectStreamWrapper();
@@ -392,6 +441,9 @@ class AJXP_Plugin implements Serializable{
      * @return array
      */
 	public function getRegistryContributions($extendedVersion = true){
+        if(!$this->contributionsLoaded) {
+            $this->loadRegistryContributions();
+        }
 		return $this->registryContributions;
 	}
     /**
@@ -408,7 +460,7 @@ class AJXP_Plugin implements Serializable{
 	}
     /**
      * Update dependencies dynamically
-     * @param $pluginService
+     * @param AJXP_PluginsService $pluginService
      * @return void
      */
 	public function updateDependencies($pluginService){
@@ -429,7 +481,8 @@ class AJXP_Plugin implements Serializable{
      * @return bool
      */
 	public function dependsOn($pluginName){
-		return in_array($pluginName, $this->dependencies);
+		return (in_array($pluginName, $this->dependencies)
+            || in_array(substr($pluginName, 0, strpos($pluginName, "."))."+", $this->dependencies));
 	}
 	/**
 	 * Get dependencies
@@ -445,7 +498,10 @@ class AJXP_Plugin implements Serializable{
 			$value = $attr->value;
 			if($value == "access.AJXP_STREAM_PROVIDER"){
 				$deps = array_merge($deps, $pluginService->getStreamWrapperPlugins());
-			}else{
+			}else if(strpos($value, "+") !== false){
+                $typed = $pluginService->getPluginsByType(substr($value, 0, strlen($value)-1));
+                foreach($typed as $typPlug) $deps[] = $typPlug->getId();
+            }else{
 				$deps = array_merge($deps, explode("|", $value));
 			}
 		}
@@ -659,7 +715,7 @@ class AJXP_Plugin implements Serializable{
             else $pInfo["plugin_uri"] = "N/A";
         }
         if($pInfo["plugin_uri"] != "N/A"){
-            $pInfo["plugin_uri"] = "<a href='".$pInfo["plugin_uri"]."' title='".$pInfo["plugin_uri"]."' target='_blank'>".substr($pInfo["plugin_uri"], 0, 20)."[...]</a>";
+            $pInfo["plugin_uri"] = "<a href='".$pInfo["plugin_uri"]."' title='".$pInfo["plugin_uri"]."' target='_blank'>".$pInfo["plugin_uri"]."</a>";
         }
         if($pInfo["core_packaged"]){
             unset($pInfo["plugin_version"]);

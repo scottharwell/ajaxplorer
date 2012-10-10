@@ -337,7 +337,21 @@ class sqlConfDriver extends AbstractConfDriver {
         return $children;
 
     }
-	
+
+    /**
+     * @param string $repositoryId
+     * @return array()
+     */
+    function getUsersForRepository($repositoryId){
+        $result = array();
+        $children_results = dibi::query('SELECT [login] FROM [ajxp_user_rights] WHERE [repo_uuid] = %s GROUP BY [login]', $repositoryId);
+        $all = $children_results->fetchAll();
+        foreach ($all as $item){
+            $result[] = $this->createUserObject($item["login"]);
+        }
+        return $result;
+    }
+
 	// SAVE / EDIT / CREATE / DELETE USER OBJECT (except password)
 	/**
 	 * Instantiate the right class
@@ -345,7 +359,7 @@ class sqlConfDriver extends AbstractConfDriver {
 	 * @param AbstractAjxpUser $userId
 	 */
 	function instantiateAbstractUserImpl($userId){
-		return new AJXP_User($userId, $this);
+		return new AJXP_SqlUser($userId, $this);
 	}
 	
 	/**
@@ -354,14 +368,30 @@ class sqlConfDriver extends AbstractConfDriver {
 	 * @see AbstractConfDriver#getUserClassFileName()
 	 */
 	function getUserClassFileName(){
-		return AJXP_INSTALL_PATH."/plugins/conf.sql/class.AJXP_User.php";
+		return AJXP_INSTALL_PATH."/plugins/conf.sql/class.AJXP_SqlUser.php";
 	}	
 	
 	
-	function listRoles(){
-		
-		$res = dibi::query('SELECT * FROM [ajxp_roles]');
-		$all = $res->fetchAll();
+	function listRoles($roleIds = array(), $excludeReserved = false){
+
+        $q = 'SELECT * FROM [ajxp_roles]';
+        $wClauses = array();
+        if(count($roleIds)){
+            foreach($roleIds as $id){
+                $wClauses[] = "[role_id] = '$id'";
+            }
+        }
+        if(count($wClauses)){
+            $wClauses = array("(".implode(" OR ", $wClauses).")");
+        }
+        if($excludeReserved){
+            $wClauses[] = "[role_id] NOT LIKE 'AJXP_%'";
+        }
+        if(count($wClauses)){
+            $q .= " WHERE ".implode(" AND ", $wClauses);
+        }
+        $res = dibi::query($q);
+        $all = $res->fetchAll();
 		
 		$roles = Array();
 		
@@ -369,7 +399,7 @@ class sqlConfDriver extends AbstractConfDriver {
 			$id = $role_row['role_id'];
 			$serialized = $role_row['serial_role'];
 			$object = unserialize($serialized);
-			if(is_a($object, "AjxpRole")){
+			if(is_a($object, "AjxpRole") || is_a($object, "AJXP_Role")){
 				$roles[$id] = $object;
 			}
 		}
@@ -387,11 +417,151 @@ class sqlConfDriver extends AbstractConfDriver {
 				);
 		}
 	}
+
+    /**
+     * @param AJXP_Role $role
+     */
+    function updateRole($role, $userObject = null){
+        dibi::query("DELETE FROM [ajxp_roles] WHERE [role_id]=%s", $role->getId());
+        dibi::query("INSERT INTO [ajxp_roles]", array(
+                'role_id' => $role->getId(),
+                'serial_role' => serialize($role))
+        );
+    }
+
+    /**
+     * @param AJXP_Role $role
+     */
+    function deleteRole($role){
+        // Mixed input Object or ID
+        if(is_a($role, "AJXP_Role")) $roleId = $role->getId();
+        else $roleId = $role;
+
+        dibi::query("DELETE FROM [ajxp_roles] WHERE [role_id]=%s", $roleId);
+    }
 	
 	function countAdminUsers(){
 		$rows = dibi::query("SELECT [login] FROM ajxp_user_rights WHERE [repo_uuid] = %s AND [rights] = %s", "ajxp.admin", "1");
 		return count($rows);
 	}
-	
+
+    /**
+     * @param AbstractAjxpUser[] $flatUsersList
+     * @param string $baseGroup
+     * @param bool $fullTree
+     * @return void
+     * @todo
+     */
+    function filterUsersByGroup(&$flatUsersList, $baseGroup = "/", $fullTree = false){
+
+    }
+
+    /**
+     * @param string $groupPath
+     * @param string $groupLabel
+     * @return mixed
+     * @todo
+     */
+    function createGroup($groupPath, $groupLabel){
+        dibi::query("INSERT INTO [ajxp_groups]", array("groupPath" => $groupPath, "groupLabel" => $groupLabel));
+    }
+
+    function relabelGroup($groupPath, $groupLabel){
+        dibi::query("UPDATE [ajxp_groups] SET [groupLabel]=%s WHERE [groupPath]=%s", $groupLabel, $groupPath);
+    }
+
+
+    function deleteGroup($groupPath){
+        dibi::query("DELETE FROM [ajxp_groups] WHERE [groupPath] = %s", $groupPath);
+    }
+
+    /**
+     * @param string $baseGroup
+     * @return string[]
+     * @todo
+     */
+    function getChildrenGroups($baseGroup = "/"){
+        $res = dibi::query("SELECT * FROM [ajxp_groups] WHERE [groupPath] LIKE %s", $baseGroup."%");
+        $pairs = $res->fetchPairs("groupPath", "groupLabel");
+        foreach($pairs as $path => $label){
+            if(strlen($path) <= strlen($baseGroup)) unset($pairs[$path]);
+        }
+        return $pairs;
+    }
+
+    /**
+     * Function for deleting a user
+     *
+     * @param String $userId
+     * @param Array $deletedSubUsers
+     * @throws Exception
+     * @return void
+     */
+    function deleteUser($userId, &$deletedSubUsers)
+    {
+        $children = array();
+        try {
+            // FIND ALL CHILDREN FIRST
+            $children_results = dibi::query('SELECT [login] FROM [ajxp_user_rights] WHERE [repo_uuid] = %s AND [rights] = %s', "ajxp.parent_user", $userId);
+            $all = $children_results->fetchAll();
+            foreach ($all as $item){
+                $children[] = $item["login"];
+            }
+            dibi::begin();
+            //This one is done by AUTH_DRIVER, not CONF_DRIVER
+            //dibi::query('DELETE FROM [ajxp_users] WHERE [login] = %s', $userId);
+            dibi::query('DELETE FROM [ajxp_user_rights] WHERE [login] = %s', $userId);
+            dibi::query('DELETE FROM [ajxp_user_prefs] WHERE [login] = %s', $userId);
+            dibi::query('DELETE FROM [ajxp_user_bookmarks] WHERE [login] = %s', $userId);
+            dibi::commit();
+            foreach ($children as $childId){
+                $this->deleteUser($childId, $deletedSubUsers);
+                $deletedSubUsers[] = $childId;
+            }
+        } catch (DibiException $e) {
+            throw new Exception('Failed to delete user, Reason: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * @param array $context
+     * @param String $fileName
+     * @param String $ID
+     * @return String $ID
+     */
+    function saveBinary($context, $fileName, $ID = null)
+    {
+        // TODO: Implement saveBinary() method.
+    }
+
+    /**
+     * @param array $context
+     * @param String $ID
+     * @param Stream $outputStream
+     * @return boolean
+     */
+    function loadBinary($context, $ID, $outputStream = null)
+    {
+        // TODO: Implement loadBinary() method.
+    }
+
+    /**
+     * @param string $queueName
+     * @param Object $object
+     * @return bool
+     */
+    function storeObjectToQueue($queueName, $object)
+    {
+        // TODO: Implement storeObjectToQueue() method.
+    }
+
+    /**
+     * @param string $queueName Name of the queue
+     * @return array An array of arbitrary objects, understood by the caller
+     */
+    function consumeQueue($queueName)
+    {
+        // TODO: Implement consumeQueue() method.
+    }
 }
 ?>

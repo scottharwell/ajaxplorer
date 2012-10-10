@@ -29,17 +29,58 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 		
 	var $options;
 	var $driverType = "conf";
-	
+
+
+    public function init($options){
+        parent::init($options);
+
+        // BACKWARD COMPATIBILIY PREVIOUS CONFIG VIA OPTIONS
+        if(isSet($options["CUSTOM_DATA"])){
+            $custom = $options["CUSTOM_DATA"];
+            $serverSettings = $this->xPath->query('//server_settings')->item(0);
+            foreach($custom as $key => $value){
+                $n = $this->manifestDoc->createElement("param");
+                $n->setAttribute("name", $key);
+                $n->setAttribute("label", $value);
+                $n->setAttribute("description", $value);
+                $n->setAttribute("type", "string");
+                $n->setAttribute("scope", "user");
+                $n->setAttribute("expose", "true");
+                $serverSettings->appendChild($n);
+            }
+            $this->reloadXPath();
+        }
+    }
+
+
 	protected function parseSpecificContributions(&$contribNode){
 		parent::parseSpecificContributions($contribNode);
-		if(!ConfService::getCoreConf("WEBDAV_ENABLE") && $contribNode->nodeName == "actions"){
+        if($contribNode->nodeName != "actions") return;
+
+        // WEBDAV ACTION
+		if(!ConfService::getCoreConf("WEBDAV_ENABLE")){
 			unset($this->actions["webdav_preferences"]);
 			$actionXpath=new DOMXPath($contribNode->ownerDocument);
 			$publicUrlNodeList = $actionXpath->query('action[@name="webdav_preferences"]', $contribNode);
 			$publicUrlNode = $publicUrlNodeList->item(0);
 			$contribNode->removeChild($publicUrlNode);			
-		}		
-		if(!ConfService::getCoreConf("USER_CREATE_REPOSITORY", "conf") && $contribNode->nodeName == "actions"){
+		}
+
+        // PERSONAL INFORMATIONS
+        $hasExposed = false;
+        $paramNodes = AJXP_PluginsService::searchAllManifests("//server_settings/param[contains(@scope,'user') and @expose='true']", "node", false, false, true);
+        if(is_array($paramNodes) && count($paramNodes)) $hasExposed = true;
+
+        if(!$hasExposed){
+            unset($this->actions["custom_data_edit"]);
+            $actionXpath=new DOMXPath($contribNode->ownerDocument);
+            $publicUrlNodeList = $actionXpath->query('action[@name="custom_data_edit"]', $contribNode);
+            $publicUrlNode = $publicUrlNodeList->item(0);
+            $contribNode->removeChild($publicUrlNode);
+        }
+
+        // CREATE A NEW REPOSITORY
+		if(!ConfService::getCoreConf("USER_CREATE_REPOSITORY", "conf")){
 			unset($this->actions["user_create_repository"]);
 			$actionXpath=new DOMXPath($contribNode->ownerDocument);
 			$publicUrlNodeList = $actionXpath->query('action[@name="user_create_repository"]', $contribNode);
@@ -51,6 +92,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 			$publicUrlNode = $publicUrlNodeList->item(0);
 			$contribNode->removeChild($publicUrlNode);
 		}
+
 	}
 	
 	// NEW FUNCTIONS FOR  LOADING/SAVING PLUGINS CONFIGS
@@ -58,7 +100,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 	 * Returns an array of options=>values merged from various sources (.inc.php, implementation source)
 	 * @return Array
 	 * @param String $pluginType
-	 * @param String $pluginId
+	 * @param String $pluginName
 	 */
 	function loadPluginConfig($pluginType, $pluginName){
 		$options = array();
@@ -87,10 +129,8 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 	abstract function _loadPluginConfig($pluginId, &$options);
 	
 	/**
-	 * 
-	 * @param String $pluginType
 	 * @param String $pluginId
-	 * @param String $configHash
+	 * @param String $options
 	 */
 	abstract function savePluginConfig($pluginId, $options);
 	
@@ -132,18 +172,54 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 		
 	/**
 	 * Must return an associative array of roleId => AjxpRole objects.
-	 *
-	 */
-	abstract function listRoles();
+     * @param array $roleIds
+     * @param boolean $excludeReserved,
+     * @return array AjxpRole[]
+     */
+	abstract function listRoles($roleIds = array(), $excludeReserved = false);
 	abstract function saveRoles($roles);
+
+    /**
+     * @abstract
+     * @param AJXP_Role $role
+     * @return void
+     */
+    abstract function updateRole($role);
+
+    /**
+     * @abstract
+     * @param AJXP_Role|String $role
+     * @return void
+     */
+    abstract function deleteRole($role);
 	
 	/**
 	 * Specific queries
 	 */
 	abstract function countAdminUsers();
-	
+
+    /**
+     * @abstract
+     * @param array $context
+     * @param String $fileName
+     * @param String $ID
+     * @return String $ID
+     */
+    abstract function saveBinary($context, $fileName, $ID = null);
+
+    /**
+     * @abstract
+     * @param array $context
+     * @param String $ID
+     * @param Stream $outputStream
+     * @return boolean
+     */
+    abstract function loadBinary($context, $ID, $outputStream = null);
+
+
+
 	/**
-	 * Instantiate a new AJXP_User
+	 * Instantiate a new AbstractAjxpUser
 	 *
 	 * @param String $userId
 	 * @return AbstractAjxpUser
@@ -153,10 +229,21 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 		if(!$abstractUser->storageExists()){			
 			AuthService::updateDefaultRights($abstractUser);
 		}
+        AuthService::updateAutoApplyRole($abstractUser);
+        AuthService::updateAuthProvidedData($abstractUser);
 		return $abstractUser;
 	}
-	
-	/**
+
+    /**
+     * Function for deleting a user
+     *
+     * @param String $userId
+     * @param Array $deletedSubUsers
+     */
+    abstract function deleteUser($userId, &$deletedSubUsers);
+
+
+        /**
 	 * Instantiate the right class
 	 *
 	 * @param AbstractAjxpUser $userId
@@ -168,7 +255,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
     /**
      * @abstract
      * @param $userId
-     * @return array()
+     * @return AbstractAjxpUser[]
      */
     abstract function getUserChildren($userId);
 
@@ -179,9 +266,63 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
      */
     abstract function getUsersForRepository($repositoryId);
 
+
+    /**
+     * @param AbstractAjxpUser[] $flatUsersList
+     * @param string $baseGroup
+     * @param bool $fullTree
+     * @return void
+     */
+    abstract function filterUsersByGroup(&$flatUsersList, $baseGroup = "/", $fullTree = false);
+
+    /**
+     * @param string $groupPath
+     * @param string $groupLabel
+     * @return mixed
+     */
+    abstract function createGroup($groupPath, $groupLabel);
+
+    /**
+     * @abstract
+     * @param $groupPath
+     * @return void
+     */
+    abstract function deleteGroup($groupPath);
+
+
+    /**
+     * @abstract
+     * @param string $groupPath
+     * @param string $groupLabel
+     * @return void
+     */
+    abstract function relabelGroup($groupPath, $groupLabel);
+
+
+        /**
+     * @param string $baseGroup
+     * @return string[]
+     */
+    abstract function getChildrenGroups($baseGroup = "/");
+
 	function getOption($optionName){
 		return (isSet($this->options[$optionName])?$this->options[$optionName]:"");	
 	}
+
+    /**
+     * @abstract
+     * @param string $queueName
+     * @param Object $object
+     * @return bool
+     */
+    abstract function storeObjectToQueue($queueName, $object);
+
+    /**
+     * @abstract
+     * @param string $queueName Name of the queue
+     * @return array An array of arbitrary objects, understood by the caller
+     */
+    abstract function consumeQueue($queueName);
 
     /**
      * @param AbstractAjxpUser $userObject
@@ -207,6 +348,23 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
         foreach ($jsonPrefs as $pref){
             $prefs[$pref] = array("value" => $userObject->getPref($pref), "type" => "json" );
         }
+
+        $paramNodes = AJXP_PluginsService::searchAllManifests("//server_settings/param[contains(@scope,'user') and @expose='true']", "node", false, false, true);
+        if(is_array($paramNodes) && count($paramNodes)){
+            foreach($paramNodes as $xmlNode){
+                if($xmlNode->getAttribute("expose") == "true"){
+                    $parentNode = $xmlNode->parentNode->parentNode;
+                    $pluginId = $parentNode->getAttribute("id");
+                    if(empty($pluginId)){
+                        $pluginId = $parentNode->nodeName.".".$parentNode->getAttribute("name");
+                    }
+                    $name = $xmlNode->getAttribute("name");
+                    $value = $userObject->mergedRole->filterParameterValue($pluginId, $name, AJXP_REPO_SCOPE_ALL, "");
+                    $prefs[$name] = array("value" => $value, "type" => "string", "pluginId" => $pluginId);
+                }
+            }
+        }
+
         return $prefs;
     }
 		
@@ -330,6 +488,48 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 				
 			break;					
 					
+			//------------------------------------
+			//	SAVE USER PREFERENCE
+			//------------------------------------
+			case "custom_data_edit":
+
+                $userObject = AuthService::getLoggedUser();
+                $data = array();
+                AJXP_Utils::parseStandardFormParameters($httpVars, $data, null, "PREFERENCES_");
+
+                $paramNodes = AJXP_PluginsService::searchAllManifests("//server_settings/param[contains(@scope,'user') and @expose='true']", "node", false, false, true);
+                $rChanges = false;
+                if(is_array($paramNodes) && count($paramNodes)){
+                    foreach($paramNodes as $xmlNode){
+                        if($xmlNode->getAttribute("expose") == "true"){
+                            $parentNode = $xmlNode->parentNode->parentNode;
+                            $pluginId = $parentNode->getAttribute("id");
+                            if(empty($pluginId)){
+                                $pluginId = $parentNode->nodeName.".".$parentNode->getAttribute("name");
+                            }
+                            $name = $xmlNode->getAttribute("name");
+                            if(isSet($data[$name])){
+                                if($userObject->parentRole == null || $userObject->parentRole->filterParameterValue($pluginId, $name, AJXP_REPO_SCOPE_ALL, "") != $data[$name]){
+                                    $userObject->personalRole->setParameterValue($pluginId, $name, $data[$name]);
+                                    $rChanges = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                if($rChanges){
+                    AuthService::updateRole($userObject->personalRole, $userObject);
+                    $userObject->recomputeMergedRole();
+                    AuthService::updateUser($userObject);
+                }
+
+
+				AJXP_XMLWriter::header();
+				AJXP_XMLWriter::sendMessage("Successfully updated your account", null);
+                AJXP_XMLWriter::close();
+
+			break;
+
 			//------------------------------------
 			// WEBDAV PREFERENCES
 			//------------------------------------
@@ -463,7 +663,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
                 $tplId = $httpVars["template_id"];
                 $tplRepo = ConfService::getRepositoryById($tplId);
                 $options = array();
-                self::parseParameters($httpVars, $options);
+                AJXP_Utils::parseStandardFormParameters($httpVars, $options);
                 $loggedUser = AuthService::getLoggedUser();
                 $newRep = $tplRepo->createTemplateChild(AJXP_Utils::sanitize($httpVars["DISPLAY"]), $options, null, $loggedUser->getId());
                 $gPath = $loggedUser->getGroupPath();
@@ -477,7 +677,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
                 }else{
                     // Make sure we do not overwrite otherwise loaded rights.
                     $loggedUser->load();
-                    $loggedUser->setRight($newRep->getUniqueId(), "rw");
+                    $loggedUser->personalRole->setAcl($newRep->getUniqueId(), "rw");
                     $loggedUser->save("superuser");
                     AuthService::updateUser($loggedUser);
 
@@ -504,7 +704,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
                     $loggedUser = AuthService::getLoggedUser();
                     // Make sure we do not override remotely set rights
                     $loggedUser->load();
-                    $loggedUser->removeRights($repoId);
+                    $loggedUser->personalRole->setAcl($repoId, "");
                     $loggedUser->save("superuser");
                     AuthService::updateUser($loggedUser);
 
@@ -515,7 +715,91 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 
             break;
 
-			default;
+            case "user_list_authorized_users" :
+
+                $defaultFormat = "html";
+
+                header("Content-type:text/html");
+                if(!ConfService::getAuthDriverImpl()->usersEditable()){
+                    break;
+                }
+                $loggedUser = AuthService::getLoggedUser();
+                $crtValue = $httpVars["value"];
+                if(!empty($crtValue)) $regexp = '^'.preg_quote($crtValue);
+                else $regexp = null;
+                $limit = min(ConfService::getCoreConf("USERS_LIST_COMPLETE_LIMIT", "conf"), 20);
+                $allUsers = AuthService::listUsers("/", $regexp, 0, $limit, false);
+                $allGroups = AuthService::listChildrenGroups("/");
+                $users = "";
+                $index = 0;
+                if($regexp != null && !count($allUsers)){
+                    $users .= "<li class='complete_user_entry_temp' data-temporary='true' data-label='$crtValue'><span class='user_entry_label'>$crtValue (create user)</span></li>";
+                }
+                if(count($allGroups)){
+                    if($regexp == null) $users .= "<li class='complete_group_entry' data-group='/' data-label='My Group'><span class='user_entry_label'>My Group</span></li>";
+                    foreach($allGroups as $groupId => $groupLabel){
+                        if($regexp == null ||  preg_match("/$regexp/i", $groupLabel)){
+                            $users .= "<li class='complete_group_entry' data-group='$groupId' data-label='$groupLabel'><span class='user_entry_label'>".$groupLabel."</span></li>";
+                        }
+                    }
+                }
+                foreach ($allUsers as $userId => $userObject){
+                    if( ( !$userObject->hasParent() &&  ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING", "conf")) || $userObject->getParent() == $loggedUser->getId() ){
+                        if($regexp != null && !preg_match("/$regexp/i", $userId)) continue;
+                        $users .= "<li class='complete_user_entry' data-label='$userId'><span class='user_entry_label'>".$userId."</span></li>";
+                        $index ++;
+                    }
+                    if($index == $limit) break;
+                }
+                if(strlen($users)) {
+                    print("<ul>".$users."</ul>");
+                }
+
+
+                break;
+
+            case "get_binary_param" :
+
+                if(isSet($httpVars["tmp_file"])){
+                    $file = AJXP_Utils::getAjxpTmpDir()."/".AJXP_Utils::securePath($httpVars["tmp_file"]);
+                    if(isSet($file)){
+                        header("Content-Type:image/png");
+                        readfile($file);
+                    }
+                }else if(isSet($httpVars["binary_id"])){
+                    if(isSet($httpVars["user_id"]) && AuthService::getLoggedUser() != null && AuthService::getLoggedUser()->isAdmin()){
+                        $context = array("USER" => $httpVars["user_id"]);
+                    }else{
+                        $context = array("USER" => AuthService::getLoggedUser()->getId());
+                    }
+                    $this->loadBinary($context, $httpVars["binary_id"]);
+                }
+            break;
+
+            case "store_binary_temp" :
+
+                if(count($fileVars)){
+                    $keys = array_keys($fileVars);
+                    $boxData = $fileVars[$keys[0]];
+                    $err = AJXP_Utils::parseFileDataErrors($boxData);
+                    if($err != null){
+
+                    }else{
+                        $rand = substr(md5(time()), 0, 6);
+                        $tmp = $rand."-". $boxData["name"];
+                        @move_uploaded_file($boxData["tmp_name"], AJXP_Utils::getAjxpTmpDir()."/". $tmp);
+                    }
+                }
+                if(isSet($tmp) && file_exists(AJXP_Utils::getAjxpTmpDir()."/".$tmp)) {
+                    print('<script type="text/javascript">');
+                    print('parent.formManagerHiddenIFrameSubmission("'.$tmp.'");');
+                    print('</script>');
+                }
+
+                break;
+
+
+            default;
 			break;
 		}
 		if(isset($logMessage) || isset($errorMessage))
@@ -531,47 +815,4 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 		return $xmlBuffer;		
 	}
 
-
-	public static function parseParameters(&$repDef, &$options, $userId = null){
-
-		foreach ($repDef as $key => $value)
-		{
-			$value = AJXP_Utils::sanitize(SystemTextEncoding::magicDequote($value));
-			if(strpos($key, "DRIVER_OPTION_")!== false && strpos($key, "DRIVER_OPTION_")==0 && strpos($key, "ajxptype") === false && strpos($key, "_checkbox") === false){
-				if(isSet($repDef[$key."_ajxptype"])){
-					$type = $repDef[$key."_ajxptype"];
-					if($type == "boolean"){
-						$value = ($value == "true"?true:false);
-					}else if($type == "integer"){
-						$value = intval($value);
-					}else if($type == "array"){
-						$value = explode(",", $value);
-					}else if($type == "password" && $userId!=null){
-	                    if (trim($value != "") && function_exists('mcrypt_encrypt'))
-	                    {
-	                        // The initialisation vector is only required to avoid a warning, as ECB ignore IV
-	                        $iv = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_RAND);
-	                        // We encode as base64 so if we need to store the result in a database, it can be stored in text column
-	                        $value = base64_encode(mcrypt_encrypt(MCRYPT_RIJNDAEL_256,  md5($userId."\1CDAFx¨op#"), $value, MCRYPT_MODE_ECB, $iv));
-	                    }
-					}
-					unset($repDef[$key."_ajxptype"]);
-				}
-                if(isSet($repDef[$key."_checkbox"])){
-                    $checked = $repDef[$key."_checkbox"] == "checked";
-                    unset($repDef[$key."_checkbox"]);
-                    if(!$checked) continue;
-                }
-				$options[substr($key, strlen("DRIVER_OPTION_"))] = $value;
-				unset($repDef[$key]);
-			}else{
-				if($key == "DISPLAY"){
-					$value = SystemTextEncoding::fromUTF8(AJXP_Utils::securePath($value));
-				}
-				$repDef[$key] = $value;
-			}
-		}
-	}
-
 }
-?>

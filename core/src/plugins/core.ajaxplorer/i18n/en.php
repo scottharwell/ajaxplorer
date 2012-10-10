@@ -403,7 +403,7 @@ $mess=array(
 "355" => "User Name",
 "356" => "User Pass",
 "357" => "Target Repository",
-"358" => "Choose a name for the shared element and assign access rights for your user.",
+"358" => "Choose a name for the shared repository.",
 "359" => "Label",
 "360" => "Rights", 
 "361" => "Read",
@@ -486,5 +486,8 @@ $mess=array(
 "439" => "Main Options",
 "440" => "Yes",
 "441" => "No",
+"442" => "My Account",
+"443" => "Update your personal information",
+"444" => "Please update your password, you will not be able to log in otherwise.",
+"445" => "You will now be logged out, please log back using your new password, thank you!",
 );
-?>

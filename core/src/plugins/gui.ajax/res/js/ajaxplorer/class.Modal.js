@@ -35,6 +35,13 @@ Class.create("Modal", {
 	 */
 	initialize: function(){
 	},
+
+    /**
+     * CurrentLightBox
+     */
+    currentLightBoxElement : null,
+    currentLightBoxModal : null,
+
 	/**
 	 * Find the forms
 	 */
@@ -71,7 +78,7 @@ Class.create("Modal", {
 	 * @param bOkButtonOnly Boolean Wether to hide cancel button
 	 * @param skipButtons Boolean Wether to hide all buttons
 	 */
-	showDialogForm: function(sTitle, sFormId, fOnLoad, fOnComplete, fOnCancel, bOkButtonOnly, skipButtons){
+	showDialogForm: function(sTitle, sFormId, fOnLoad, fOnComplete, fOnCancel, bOkButtonOnly, skipButtons, useNextButtons){
 		this.clearContent(this.dialogContent);
 		//this.dialogTitle.innerHTML = sTitle;
 		var newForm;
@@ -87,7 +94,6 @@ Class.create("Modal", {
 			var newForm = document.createElement('form');
 			newForm.id = 'modal_action_form';
 			newForm.setAttribute('name','modal_action_form');
-			newForm.setAttribute('action', 'cont.php');
 			newForm.appendChild(formDiv.cloneNode(true));
 			var reloadIFrame = null;
 			if($(newForm).getElementsByTagName("iframe")[0])
@@ -105,7 +111,7 @@ Class.create("Modal", {
 			}		
 		}
 		if(!this.cachedForms.get(sFormId) && !skipButtons){
-			this.addSubmitCancel(newForm, fOnCancel, bOkButtonOnly);
+			this.addSubmitCancel(newForm, fOnCancel, bOkButtonOnly, "bottom", useNextButtons);
 		}
 		this.dialogContent.appendChild(newForm);
 		var boxPadding = $(sFormId).getAttribute("box_padding");
@@ -273,7 +279,7 @@ Class.create("Modal", {
 	 * Find an editor using the editorData and initialize it
 	 * @param editorData Object
 	 */
-	openEditorDialog : function(editorData){
+	openEditorDialog : function(editorData, editorArgument){
 		if(!editorData.formId){
 			ajaxplorer.displayMessage('ERROR', 'Error, you must define a formId attribute in your &lt;editor&gt; manifest (or set it as openable="false")');
 			return;
@@ -286,11 +292,74 @@ Class.create("Modal", {
 			}else{
 				ajaxplorer.actionBar.editor = new editorKlass(oForm);
 			}
-			ajaxplorer.actionBar.editor.open(ajaxplorer.getUserSelection());
-			//ajaxplorer.actionBar.editor.resize();
+            if(editorArgument){
+                ajaxplorer.actionBar.editor.open(editorArgument);
+            }else{
+                ajaxplorer.actionBar.editor.open(ajaxplorer.getUserSelection().getUniqueNode());
+            }
+            //ajaxplorer.actionBar.editor.resize();
 		};
 		this.showDialogForm('', editorData.formId, loadFunc, null, null, true, true);			
 	},
+
+    showSimpleModal : function(element, content, okCallback, cancelCallback, position){
+        var box = new Element("div", {className:"dialogBox css_boxshadow"});
+        box.insert(content);
+        content.addClassName("dialogContent");
+        addLightboxMarkupToElement(element);
+        if(Prototype.Browser.IE){
+            $("all_forms").insert(box);
+            var outBox = element.up(".dialogBox");
+            if(outBox){
+                box.setStyle({
+                    display:"block",
+                    zIndex : outBox.getStyle("zIndex"),
+                    top: parseInt(outBox.getStyle('top')),
+                    left: parseInt(outBox.getStyle('left'))
+                });
+            }else{
+                box.setStyle({
+                    display:"block",
+                    zIndex : 2000,
+                    top: parseInt(element.getStyle('top')),
+                    left: parseInt(element.getStyle('left'))
+                });
+            }
+        }else{
+            $(element).down("#element_overlay").insert({after:box});
+        }
+        this.currentLightBoxElement = $(element);
+        this.currentLightBoxModal = box;
+        this.addSubmitCancel(content, cancelCallback, (cancelCallback==null), position);
+        content.down(".dialogButtons").select("input").each(function(button){
+            if(((cancelCallback==null) && button.getAttribute("name") == "close") || button.getAttribute("name") == "ok"){
+                button.observe("click", function(event){
+                    Event.stop(event);
+                    var res = okCallback();
+                    if(res){
+                        box.remove();
+                        removeLightboxFromElement(element);
+                        this.currentLightBoxElement = null;
+                        this.currentLightBoxModal = null;
+                    }
+                }.bind(this));
+            }else{
+                button.stopObserving("click");
+                button.observe("click", function(event){
+                    Event.stop(event);
+                    var res = cancelCallback();
+                    if(res){
+                        box.remove();
+                        removeLightboxFromElement(element);
+                        this.currentLightBoxElement = null;
+                        this.currentLightBoxModal = null;
+                    }
+                }.bind(this));
+            }
+        });
+    },
+
+
 	/**
 	 * Returns the current form, the real one.
 	 * @returns HTMLForm
@@ -379,18 +448,21 @@ Class.create("Modal", {
 	 * @param position String Position.insert() allowed key.
 	 * @returns HTMLElement
 	 */
-	addSubmitCancel: function(oForm, fOnCancel, bOkButtonOnly, position){
+	addSubmitCancel: function(oForm, fOnCancel, bOkButtonOnly, position, useNextButton){
 		var contDiv = new Element('div', {className:'dialogButtons'});
+        if(useNextButton){
+            contDiv.setStyle({direction:'rtl'});
+        }
 		var okButton = new Element('input', {
 			type:'image',
 			name:(bOkButtonOnly?'close':'ok'),
-			src:ajxpResourcesFolder+'/images/actions/22/dialog_'+(bOkButtonOnly?'close':'ok_apply')+'.png',
+			src:ajxpResourcesFolder+'/images/actions/22/'+(bOkButtonOnly?'dialog_close':(useNextButton?'forward':'dialog_ok_apply'))+'.png',
 			height:22,
 			width:22,
 			title:MessageHash[48]});
 		okButton.addClassName('dialogButton');
 		okButton.addClassName('dialogFocus');
-		contDiv.insert(okButton);
+        contDiv.insert(okButton);
 		if(!bOkButtonOnly)
 		{
 			var caButton = new Element('input', {
@@ -409,8 +481,9 @@ Class.create("Modal", {
 				caButton.observe("click",function(e){hideLightBox();Event.stop(e);return false;});
 			}
 			contDiv.insert(caButton);
-		}	
-		if(!position){
+		}
+
+        if(!position){
 			position = 'bottom';
 		}
 		var obj = {}; 

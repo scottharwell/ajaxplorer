@@ -331,6 +331,63 @@ class ConfService
 	}
 
     /**
+     * @static
+     * @param AbstractAjxpUser $userObject
+     * @param bool $details
+     * @param bool $labelOnly
+     * @return Repository[]
+     */
+    public static function getAccessibleRepositories($userObject=null, $details=false, $labelOnly = false, $skipShared = false){
+        $result = array();
+        foreach (ConfService::getRepositoriesList() as $repositoryId => $repositoryObject)
+        {
+            if(!AuthService::canAssign($repositoryObject, $userObject)) {
+                continue;
+            }
+            if($repositoryObject->isTemplate) continue;
+            $toLast = false;
+            if($repositoryObject->getAccessType()=="ajxp_conf" && $userObject != null){
+                if(AuthService::usersEnabled() && !$userObject->isAdmin()){
+                    continue;
+                }else{
+                    $toLast = true;
+                }
+            }
+            if($repositoryObject->getAccessType() == "ajxp_shared" && !AuthService::usersEnabled()){
+                continue;
+            }
+            if($repositoryObject->getUniqueUser() && (!AuthService::usersEnabled() || $userObject == null  || $userObject->getId() == "shared" || $userObject->getId() != $repositoryObject->getUniqueUser() )){
+                continue;
+            }
+            if($userObject == null || $userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId) || $details) {
+                // Do not display standard repositories even in details mode for "sub"users
+                if($userObject != null && $userObject->hasParent() && !($userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId) )) continue;
+                // Do not display shared repositories otherwise.
+                if($repositoryObject->hasOwner() && $skipShared){
+                    continue;
+                }
+                if($userObject != null && $repositoryObject->hasOwner() && !$userObject->hasParent()){
+                    // Display the repositories if allow_crossusers is ok
+                    if(ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING", "conf") !== true) continue;
+                    // But still do not display its own shared repositories!
+                    if($repositoryObject->getOwner() == $userObject->getId()) continue;
+                }
+                if($repositoryObject->hasOwner() && $userObject != null &&  $details && !($userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId) ) ){
+                    continue;
+                }
+
+                if($labelOnly){
+                    $result[$repositoryId] = $repositoryObject->getDisplay();
+                }else{
+                    $result[$repositoryId] = $repositoryObject;
+                }
+
+            }
+        }
+        return $result;
+    }
+
+    /**
      * Return the full list of repositories, as id => objects
      * @return array
      */
@@ -848,6 +905,7 @@ class ConfService
 		$coreP = AJXP_PluginsService::getInstance()->findPlugin("core", $coreType);
 		if($coreP === false) return null;
 		$confs = $coreP->getConfigs();
+        $confs = AuthService::filterPluginParameters("core.".$coreType, $confs);
 		return (isSet($confs[$varName]) ? AJXP_VarsFilter::filter($confs[$varName]) : null);
 	}
 	
@@ -944,7 +1002,7 @@ class ConfService
                     continue;
                 }
                 try{
-                    $instance->init($metaSources[$plugId]);
+                    $instance->init(AuthService::filterPluginParameters($plugId, $metaSources[$plugId], $crtRepository->getId()));
                     $instance->beforeInitMeta($plugInstance);
                 }catch(Exception $e){
                     AJXP_Logger::logAction('ERROR : Cannot instanciate Meta plugin, reason : '.$e->getMessage());
@@ -981,7 +1039,7 @@ class ConfService
 					continue;
 				}
                 try{
-                    $instance->init($metaSources[$plugId]);
+                    $instance->init(AuthService::filterPluginParameters($plugId, $metaSources[$plugId], $crtRepository->getId()));
                     $instance->initMeta($plugInstance);
                 }catch(Exception $e){
                     AJXP_Logger::logAction('ERROR : Cannot instanciate Meta plugin, reason : '.$e->getMessage());

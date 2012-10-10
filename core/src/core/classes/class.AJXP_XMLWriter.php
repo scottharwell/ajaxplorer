@@ -436,13 +436,13 @@ class AJXP_XMLWriter
 			$buffer.= AJXP_XMLWriter::writeRepositoriesData(null, $details);
 			$buffer.="</user>";	
 		}else if($loggedUser != null){
+            $lock = $loggedUser->getLock();
 			$buffer.="<user id=\"".$loggedUser->id."\">";
 			if(!$details){
 				$buffer.="<active_repo id=\"".ConfService::getCurrentRootDirIndex()."\" write=\"".($loggedUser->canWrite(ConfService::getCurrentRootDirIndex())?"1":"0")."\" read=\"".($loggedUser->canRead(ConfService::getCurrentRootDirIndex())?"1":"0")."\"/>";
 			}else{
 				$buffer .= "<ajxp_roles>";
 				foreach ($loggedUser->getRoles() as $roleId => $boolean){
-                    if(strpos($roleId, "AJXP_GRP_") === 0) continue;
 					if($boolean === true) $buffer.= "<role id=\"$roleId\"/>";
 				}
 				$buffer .= "</ajxp_roles>";
@@ -451,14 +451,25 @@ class AJXP_XMLWriter
 			$buffer.="<preferences>";
             $preferences = $confDriver->getExposedPreferences($loggedUser);
             foreach($preferences as $prefName => $prefData){
+                $atts = "";
+                if(isSet($prefData["exposed"]) && $prefData["exposed"] == true){
+                    foreach($prefData as $k => $v) {
+                        if($k=="name") continue;
+                        if($k == "value") $k = "default";
+                        $atts .= "$k='$v' ";
+                    }
+                }
+                if(isset($prefData["pluginId"])){
+                    $atts .=  "pluginId='".$prefData["pluginId"]."' ";
+                }
                 if($prefData["type"] == "string"){
-                    $buffer.="<pref name=\"$prefName\" value=\"".$prefData["value"]."\"/>";
+                    $buffer.="<pref name=\"$prefName\" value=\"".$prefData["value"]."\" $atts/>";
                 }else if($prefData["type"] == "json"){
-                    $buffer.="<pref name=\"$prefName\"><![CDATA[".$prefData["value"]."]]></pref>";
+                    $buffer.="<pref name=\"$prefName\" $atts><![CDATA[".$prefData["value"]."]]></pref>";
                 }
             }
 			$buffer.="</preferences>";
-			$buffer.="<special_rights is_admin=\"".($loggedUser->isAdmin()?"1":"0")."\"/>";
+			$buffer.="<special_rights is_admin=\"".($loggedUser->isAdmin()?"1":"0")."\"  ".($lock!==false?"lock=\"$lock\"":"")."/>";
 			$bMarks = $loggedUser->getBookmarks();
 			if(count($bMarks)){
 				$buffer.= "<bookmarks>".AJXP_XMLWriter::writeBookmarks($bMarks, false)."</bookmarks>";
@@ -470,117 +481,49 @@ class AJXP_XMLWriter
 	/**
      * Write the repositories access rights in XML format
      * @static
-     * @param AJXP_User|null $loggedUser
+     * @param AbstractAjxpUser|null $loggedUser
      * @param bool $details
      * @return string
      */
 	static function writeRepositoriesData($loggedUser, $details=false){
-		$st = "";
-		$st .= "<repositories>";
-		$streams = ConfService::detectRepositoryStreams(false);
-		foreach (ConfService::getRepositoriesList() as $rootDirIndex => $rootDirObject)
-		{
-            if(!AuthService::canAssign($rootDirObject, $loggedUser)) {
-                continue;
-            }
-			if($rootDirObject->isTemplate) continue;
-			$toLast = false;
-			if($rootDirObject->getAccessType()=="ajxp_conf"){
-				if(AuthService::usersEnabled() && !$loggedUser->isAdmin()){
-					continue;
-				}else{
-					$toLast = true;
-				}				
-			}
-			if($rootDirObject->getAccessType() == "ajxp_shared" && !AuthService::usersEnabled()){
-				continue;
-			}
-            if($rootDirObject->getUniqueUser() && (!AuthService::usersEnabled() || $loggedUser->getId() == "shared" || $loggedUser->getId() != $rootDirObject->getUniqueUser() )){
-                continue;
-            }
-			if($loggedUser == null || $loggedUser->canRead($rootDirIndex) || $loggedUser->canWrite($rootDirIndex) || $details) {
-				// Do not display standard repositories even in details mode for "sub"users
-				if($loggedUser != null && $loggedUser->hasParent() && !($loggedUser->canRead($rootDirIndex) || $loggedUser->canWrite($rootDirIndex) )) continue;
-				// Do not display shared repositories otherwise.
-				if($loggedUser != null && $rootDirObject->hasOwner() && !$loggedUser->hasParent()){
-                    // Display the repositories if allow_crossusers is ok
-                    if(ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING") !== true) continue;
-                    // But still do not display its own shared repositories!
-                    if($rootDirObject->getOwner() == $loggedUser->getId()) continue;
-                }
-                if($rootDirObject->hasOwner() && $loggedUser != null &&  $details && !($loggedUser->canRead($rootDirIndex) || $loggedUser->canWrite($rootDirIndex) ) ){
-                	continue;
-                }
-				
-				$rightString = "";
-				if($details){
-					$rightString = " r=\"".($loggedUser->canRead($rootDirIndex)?"1":"0")."\" w=\"".($loggedUser->canWrite($rootDirIndex)?"1":"0")."\"";
-				}
-				$streamString = "";
-				if(in_array($rootDirObject->accessType, $streams)){
-					$streamString = "allowCrossRepositoryCopy=\"true\"";
-				}
-                if($rootDirObject->getUniqueUser()){
-                    $streamString .= " user_editable_repository=\"true\" ";
-                }
-				$slugString = "";
-				$slug = $rootDirObject->getSlug();
-				if(!empty($slug)){
-					$slugString = "repositorySlug=\"$slug\"";
-				}
-                $isSharedString = ($rootDirObject->hasOwner() ? "owner='".$rootDirObject->getOwner()."'" : "");
-                
-                $xmlString = "<repo access_type=\"".$rootDirObject->accessType."\" id=\"".$rootDirIndex."\"$rightString $streamString $slugString $isSharedString><label>".SystemTextEncoding::toUTF8(AJXP_Utils::xmlEntities($rootDirObject->getDisplay()))."</label>".$rootDirObject->getClientSettings()."</repo>";
-				if($toLast){
-					$lastString = $xmlString;
-				}else{
-					$st .= $xmlString;
-				}
-			}
-		}
-		if(isSet($lastString)){
-			$st.= $lastString;
-		}
-		$st .= "</repositories>";
-		return $st;
-	}
-	
-	/**
-	 * Send repositories access for given role as XML
-	 *
-	 * @param AjxpRole $role
-	 * @return string
-	 */
-	static function writeRoleRepositoriesData($role){
 		$st = "<repositories>";
-		foreach (ConfService::getRepositoriesList() as $repoId => $repoObject)
-		{		
-			$toLast = false;
-            if(!AuthService::canAssign($repoObject)) continue;
-			if($repoObject->getAccessType() == "ajxp_conf") continue;
-			if($repoObject->isTemplate) continue;
-			if($repoObject->getAccessType() == "ajxp_shared" && !AuthService::usersEnabled()){
-				continue;
-			}
-            if($repoObject->hasOwner()) continue;
-			$rightString = " r=\"".($role->canRead($repoId)?"1":"0")."\" w=\"".($role->canWrite($repoId)?"1":"0")."\"";
-			$string = "<repo access_type=\"".$repoObject->accessType."\" id=\"".$repoId."\"$rightString><label>".SystemTextEncoding::toUTF8(AJXP_Utils::xmlEntities($repoObject->getDisplay()))."</label></repo>";
-			if($toLast){
-				$lastString = $string;
-			}else{
-				$st .= $string;
-			}
-		}
+		$streams = ConfService::detectRepositoryStreams(false);
+        foreach(ConfService::getAccessibleRepositories($loggedUser, $details, false) as $repoId => $repoObject){
+            $toLast = false;
+            if($repoObject->getAccessType()=="ajxp_conf"){
+                if(AuthService::usersEnabled() && !$loggedUser->isAdmin())continue;
+                $toLast = true;
+            }
+            $rightString = "";
+            if($details){
+                $rightString = " r=\"".($loggedUser->canRead($repoId)?"1":"0")."\" w=\"".($loggedUser->canWrite($repoId)?"1":"0")."\"";
+            }
+            $streamString = "";
+            if(in_array($repoObject->accessType, $streams)){
+                $streamString = "allowCrossRepositoryCopy=\"true\"";
+            }
+            if($repoObject->getUniqueUser()){
+                $streamString .= " user_editable_repository=\"true\" ";
+            }
+            $slugString = "";
+            $slug = $repoObject->getSlug();
+            if(!empty($slug)){
+                $slugString = "repositorySlug=\"$slug\"";
+            }
+            $isSharedString = ($repoObject->hasOwner() ? "owner='".$repoObject->getOwner()."'" : "");
+
+            $xmlString = "<repo access_type=\"".$repoObject->accessType."\" id=\"".$repoId."\"$rightString $streamString $slugString $isSharedString><label>".SystemTextEncoding::toUTF8(AJXP_Utils::xmlEntities($repoObject->getDisplay()))."</label>".$repoObject->getClientSettings()."</repo>";
+            if($toLast){
+                $lastString = $xmlString;
+            }else{
+                $st .= $xmlString;
+            }
+        }
+
 		if(isSet($lastString)){
 			$st.= $lastString;
 		}
 		$st .= "</repositories>";
-		$st .= "<actions_rights>";
-		foreach ($role->getSpecificActionsRights("ajxp.all") as $actionId => $actionValue){
-			$st.="<action name=\"$actionId\" value=\"".($actionValue?"true":"false")."\"/>";
-		}
-		$st .= "</actions_rights>";
-        $st .= "<role is_default=\"".($role->isDefault()?"true":"false")."\"/>";
 		return $st;
 	}
 	/**

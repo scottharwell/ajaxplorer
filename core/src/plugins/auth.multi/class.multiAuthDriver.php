@@ -35,7 +35,7 @@ class multiAuthDriver extends AbstractAuthDriver {
     var $slaveName;
     var $baseName;
 
-    static $schemesCache = array();
+    static $schemesCache = null;
 
 	/**
 	 * @var $drivers AbstractAuthDriver[]
@@ -150,7 +150,11 @@ class multiAuthDriver extends AbstractAuthDriver {
 	}
 
     function getAuthScheme($login){
-        if(isSet(multiAuthDriver::$schemesCache[$login])){
+        if(!isSet(multiAuthDriver::$schemesCache)){
+            foreach($this->drivers as $scheme => $d){
+                if($d->userExists($login)) return $scheme;
+            }
+        } else if(isSet(multiAuthDriver::$schemesCache[$login])){
             return multiAuthDriver::$schemesCache[$login];
         }
         return null;
@@ -161,6 +165,9 @@ class multiAuthDriver extends AbstractAuthDriver {
     }
 
     function addToCache($usersList, $scheme){
+        if(!isset(multiAuthDriver::$schemesCache)){
+            multiAuthDriver::$schemesCache = array();
+        }
         foreach($usersList as $userName){
             multiAuthDriver::$schemesCache[$userName] = $scheme;
         }
@@ -170,38 +177,73 @@ class multiAuthDriver extends AbstractAuthDriver {
         return (!empty($this->baseName) && $this->drivers[$this->baseName]->supportsUsersPagination());
     }
 
-    function listUsersPaginated($regexp, $offset, $limit){
-        return $this->drivers[$this->baseName]->listUsersPaginated($regexp, $offset, $limit);
+    function listUsersPaginated($baseGroup="/", $regexp, $offset, $limit){
+        return $this->drivers[$this->baseName]->listUsersPaginated($baseGroup, $regexp, $offset, $limit);
     }
 
     function getUsersCount(){
-        return $this->drivers[$this->baseName]->getUsersCount();
+        if(empty($this->baseName)){
+            return $this->drivers[$this->slaveName]->getUsersCount() +  $this->drivers[$this->masterName]->getUsersCount();
+        }else{
+            return $this->drivers[$this->baseName]->getUsersCount();
+        }
     }
 
-	function listUsers(){
+	function listUsers($baseGroup="/"){
         if($this->masterSlaveMode){
             if(!empty($this->baseName)) {
-                $users = $this->drivers[$this->baseName]->listUsers();
+                $users = $this->drivers[$this->baseName]->listUsers($baseGroup);
                 $this->addToCache(array_keys($users), $this->baseName);
                 return $users;
             }
-            $masterUsers = $this->drivers[$this->slaveName]->listUsers();
+            $masterUsers = $this->drivers[$this->slaveName]->listUsers($baseGroup);
             $this->addToCache(array_keys($masterUsers), $this->slaveName);
-            $slaveUsers = $this->drivers[$this->masterName]->listUsers();
+            $slaveUsers = $this->drivers[$this->masterName]->listUsers($baseGroup);
             $this->addToCache(array_keys($slaveUsers), $this->masterName);
             return array_merge($masterUsers, $slaveUsers);
         }
 		if($this->getCurrentDriver()){
-			return $this->getCurrentDriver()->listUsers();
+			return $this->getCurrentDriver()->listUsers($baseGroup);
 		}
 		$allUsers = array();
 		foreach($this->drivers as $driver){
-			$allUsers = array_merge($driver->listUsers());
+			$allUsers = array_merge($driver->listUsers($baseGroup));
 		}
 		return $allUsers;
 	}
-	
-	function preLogUser($remoteSessionId){
+
+    function updateUserObject(&$userObject){
+        $s = $this->getAuthScheme($userObject->getId());
+        if(isSet($this->drivers[$s])){
+            $this->drivers[$s]->updateUserObject($userObject);
+        }
+    }
+
+    /**
+     * List children groups of a given group. By default will report this on the CONF driver,
+     * but can be overriden to grab info directly from auth driver (ldap, etc).
+     * @param string $baseGroup
+     * @return string[]
+     */
+    function listChildrenGroups($baseGroup = "/"){
+        if($this->masterSlaveMode){
+            if(!empty($this->baseName)) return $this->drivers[$this->baseName]->listChildrenGroups($baseGroup);
+            $aGroups = $this->drivers[$this->masterName]->listChildrenGroups($baseGroup);
+            $bGroups = $this->drivers[$this->slaveName]->listChildrenGroups($baseGroup);
+            return $aGroups + $bGroups;
+        }
+        if($this->getCurrentDriver()){
+            return $this->drivers[$this->currentDriver]->listChildrenGroups($baseGroup);
+        }else{
+            $groups = array();
+            foreach($this->drivers as $d){
+                $groups = array_merge($groups, $d->listChildrenGroups($baseGroup));
+            }
+        }
+    }
+
+
+    function preLogUser($remoteSessionId){
         if($this->masterSlaveMode){
             $this->drivers[$this->slaveName]->preLogUser($remoteSessionId);
             if(AuthService::getLoggedUser() == null){
