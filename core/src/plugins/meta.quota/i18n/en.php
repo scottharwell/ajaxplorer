@@ -23,4 +23,3 @@ $mess=array(
 "2" => "Click to reload quota usage",
 "3" => "You are exceeding your quota",
 );
-?>

@@ -47,40 +47,50 @@ class AJXP_Sabre_AuthBackend extends Sabre_DAV_Auth_Backend_AbstractDigest{
         if(empty($webdavData) || !isset($webdavData["ACTIVE"]) || $webdavData["ACTIVE"] !== true || !isSet($webdavData["PASS"])){
             return false;
         }
-        $pass = $this->_decodePassword($webdavData["PASS"], $username);
-        return md5("{$username}:{$realm}:{$pass}");
+        if(isSet($webdavData["HA1"])){
+            return $webdavData["HA1"];
+        }else{
+            $pass = $this->_decodePassword($webdavData["PASS"], $username);
+            return md5("{$username}:{$realm}:{$pass}");
+        }
 
     }
 
     public function authenticate(Sabre_DAV_Server $server, $realm){
         $success = parent::authenticate($server, $realm);
         if($success){
-            AuthService::logUser($this->currentUser, null, true);
-            $res = $this->updateCurrentUserRights(AuthService::getLoggedUser());
-            if($res === false){
-                return false;
+            $res = AuthService::logUser($this->currentUser, null, true);
+            if($res < 1){
+                throw new Sabre_DAV_Exception_NotAuthenticated();
             }
+            $this->updateCurrentUserRights(AuthService::getLoggedUser());
             if(ConfService::getCoreConf("SESSION_SET_CREDENTIALS", "auth")){
                 $webdavData = AuthService::getLoggedUser()->getPref("AJXP_WEBDAV_DATA");
                 AJXP_Safe::storeCredentials($this->currentUser, $this->_decodePassword($webdavData["PASS"], $this->currentUser));
             }
         }
-        return $success;
+        if($success === false){
+            throw new Sabre_DAV_Exception_NotAuthenticated();
+        }
+        ConfService::loadRepositoryDriver();
+        return true;
     }
 
 
     protected function updateCurrentUserRights($user){
-        if(!$user->canSwitchTo($this->repositoryId)){
-            return false;
+        if($this->repositoryId == null) {
+            return true;
         }
-        return true;
+        if(!$user->canSwitchTo($this->repositoryId)){
+            throw new Sabre_DAV_Exception_NotAuthenticated();
+        }
     }
 
     private function _decodePassword($encoded, $user){
         if (function_exists('mcrypt_decrypt'))
         {
             $iv = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_RAND);
-            $encoded = trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, md5($user.$this->secretKey), base64_decode($encoded), MCRYPT_MODE_ECB, $iv));
+            $encoded = trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, md5($user.$this->secretKey), base64_decode($encoded), MCRYPT_MODE_ECB, $iv), "\0");
         }
         return $encoded;
     }

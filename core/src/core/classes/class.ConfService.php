@@ -134,19 +134,25 @@ class ConfService
 	public function initActivePluginsInst(){
 		$pServ = AJXP_PluginsService::getInstance();
         $detected = $pServ->getDetectedPlugins();
+        $toActivate = array();
         foreach ($detected as $pType => $pObjects){
             if(in_array($pType, array("conf", "auth", "log", "access", "meta","metastore", "index"))) continue;
             foreach ($pObjects as $pName => $pObject){
-                $pObject->init(array());
-                try{
-                    $pObject->performChecks();
-                    if(!$pObject->isEnabled()) continue;
-                    $pServ->setPluginActiveInst($pType, $pName, true);
-                }catch (Exception $e){
-                    //$this->errors[$pName] = "[$pName] ".$e->getMessage();
-                }
-
+                $toActivate[$pObject->getId()] = $pObject ;
             }
+        }
+        $o = $pServ->getOrderByDependency($toActivate, false);
+        foreach ($o as $id) {
+            $pObject = $toActivate[$id];
+            $pObject->init(array());
+            try{
+                $pObject->performChecks();
+                if(!$pObject->isEnabled()) continue;
+                $pServ->setPluginActiveInst($pObject->getType(), $pObject->getName(), true);
+            }catch (Exception $e){
+                //$this->errors[$pName] = "[$pName] ".$e->getMessage();
+            }
+
         }
 	}
 	/**
@@ -341,6 +347,17 @@ class ConfService
         $result = array();
         foreach (ConfService::getRepositoriesList() as $repositoryId => $repositoryObject)
         {
+            if(!ConfService::repositoryIsAccessible($repositoryId, $repositoryObject, $userObject, $details, $skipShared)){
+                continue;
+            }
+
+            if($labelOnly){
+                $result[$repositoryId] = $repositoryObject->getDisplay();
+            }else{
+                $result[$repositoryId] = $repositoryObject;
+            }
+
+            /*
             if(!AuthService::canAssign($repositoryObject, $userObject)) {
                 continue;
             }
@@ -368,23 +385,80 @@ class ConfService
                 }
                 if($userObject != null && $repositoryObject->hasOwner() && !$userObject->hasParent()){
                     // Display the repositories if allow_crossusers is ok
-                    if(ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING", "conf") !== true) continue;
+                    if(ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING", "conf") !== true) {
+                        continue;
+                    }
                     // But still do not display its own shared repositories!
-                    if($repositoryObject->getOwner() == $userObject->getId()) continue;
+                    if($repositoryObject->getOwner() == $userObject->getId()) {
+                        continue;
+                    }
                 }
                 if($repositoryObject->hasOwner() && $userObject != null &&  $details && !($userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId) ) ){
                     continue;
                 }
 
-                if($labelOnly){
-                    $result[$repositoryId] = $repositoryObject->getDisplay();
-                }else{
-                    $result[$repositoryId] = $repositoryObject;
-                }
 
             }
+            */
         }
         return $result;
+    }
+
+    /**
+     * @param String $repositoryId
+     * @param Repository $repositoryObject
+     * @param AbstractAjxpUser $userObject
+     * @param bool $details
+     * @param bool $skipShared
+     *
+     * @return bool
+     */
+    public static function repositoryIsAccessible($repositoryId, $repositoryObject, $userObject, $details=false, $skipShared=false){
+        if(!AuthService::canAssign($repositoryObject, $userObject)) {
+            return false;
+        }
+        if($repositoryObject->isTemplate) {
+            return false;
+        }
+        if($repositoryObject->getAccessType()=="ajxp_conf" && $userObject != null){
+            if(AuthService::usersEnabled() && !$userObject->isAdmin()){
+                return false;
+            }
+        }
+        if($repositoryObject->getAccessType() == "ajxp_shared" && !AuthService::usersEnabled()){
+            return false;
+        }
+        if($repositoryObject->getUniqueUser() && (!AuthService::usersEnabled() || $userObject == null  || $userObject->getId() == "shared" || $userObject->getId() != $repositoryObject->getUniqueUser() )){
+            return false;
+        }
+        if( $userObject != null && !($userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId)) && !$details){
+            return false;
+        }
+        if($userObject == null || $userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId) || $details) {
+            // Do not display standard repositories even in details mode for "sub"users
+            if($userObject != null && $userObject->hasParent() && !($userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId) )) {
+                return false;
+            }
+            // Do not display shared repositories otherwise.
+            if($repositoryObject->hasOwner() && $skipShared){
+                return false;
+            }
+            if($userObject != null && $repositoryObject->hasOwner() && !$userObject->hasParent()){
+                // Display the repositories if allow_crossusers is ok
+                if(ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING", "conf") === false 
+                || ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING", "conf") === 0) {
+                    return false;
+                }
+                // But still do not display its own shared repositories!
+                if($repositoryObject->getOwner() == $userObject->getId()) {
+                    return false;
+                }
+            }
+            if($repositoryObject->hasOwner() && $userObject != null &&  $details && !($userObject->canRead($repositoryId) || $userObject->canWrite($repositoryId) ) ){
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -752,10 +826,12 @@ class ConfService
 					$lang = "en"; // Default language, minimum required.
 				}
 				if(is_file($path."/".$lang.".php")){
-					require($path."/".$lang.".php");					
-					foreach ($mess as $key => $message){
-						$this->configs["MESSAGES"][(empty($nameSpace)?"":$nameSpace.".").$key] = $message;
-					}
+					require($path."/".$lang.".php");
+                    if(isSet($mess)){
+                        foreach ($mess as $key => $message){
+                            $this->configs["MESSAGES"][(empty($nameSpace)?"":$nameSpace.".").$key] = $message;
+                        }
+                    }
 				}
                 $lang = $crtLang;
                 if(!is_file($path."/conf/".$crtLang.".php")){
@@ -813,13 +889,20 @@ class ConfService
      * @return array
      */
 	public static function getDeclaredUnsecureActions(){
-		$nodes = AJXP_PluginsService::getInstance()->searchAllManifests("//action[@skipSecureToken]", "nodes");
-		$res = array();
-		foreach($nodes as $node){
-			$res[] = $node->getAttribute("name");
-		}
-		return $res;
-	}
+        $test = AJXP_PluginsService::getInstance()->loadFromPluginQueriesCache("//action[@skipSecureToken]");
+        if(!empty($test) && is_array($test)) {
+            return $test;
+        }else{
+            $nodes = AJXP_PluginsService::getInstance()->searchAllManifests("//action[@skipSecureToken]", "nodes");
+            $res = array();
+            foreach($nodes as $node){
+                $res[] = $node->getAttribute("name");
+            }
+            AJXP_PluginsService::getInstance()->storeToPluginQueriesCache("//action[@skipSecureToken]", $res);
+            return $res;
+        }
+
+    }
 	/**
      * Detect available languages from the core i18n library
      * @static
@@ -1115,4 +1198,3 @@ class ConfService
     } 	
 	
 }
-?>

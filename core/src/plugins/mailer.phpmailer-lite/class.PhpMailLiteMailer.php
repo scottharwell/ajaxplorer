@@ -36,10 +36,12 @@ class PhpMailLiteMailer extends AjxpMailer {
 		$mail = new PHPMailerLite(true);
 		$mail->Mailer = $this->pluginConf["MAILER"];
         $from = $this->resolveFrom($from);
-        if($from["adress"] != $from["name"]){
-            $mail->SetFrom($from["adress"], $from["name"]);
-        }else{
-            $mail->setFrom($from["adress"]);
+        if(!empty($from)){
+            if($from["adress"] != $from["name"]){
+                $mail->SetFrom($from["adress"], $from["name"]);
+            }else{
+                $mail->setFrom($from["adress"]);
+            }
         }
 		foreach ($realRecipients as $address){
             if($address["adress"] == $address["name"]){
@@ -50,6 +52,7 @@ class PhpMailLiteMailer extends AjxpMailer {
 		}
 		$mail->WordWrap = 50;                                 // set word wrap to 50 characters
 		$mail->IsHTML(true);                                  // set email format to HTML
+        $mail->CharSet = "utf-8";
 
         $mail->Subject = $subject;
 		$mail->Body = nl2br($body);

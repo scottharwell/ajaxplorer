@@ -42,7 +42,7 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
         	$this->metaFields = explode(",",$this->options["index_meta_fields"]);
         }
         if(!empty($this->options["repository_specific_keywords"])){
-            $this->specificId = "-".str_replace(",", "-", AJXP_VarsFilter::filter($this->options["repository_specific_keywords"]));
+            $this->specificId = "-".str_replace(array(",", "/"), array("-", "__"), AJXP_VarsFilter::filter($this->options["repository_specific_keywords"]));
         }
         $this->indexContent = ($this->options["index_content"] == true);
 	}
@@ -98,7 +98,13 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
 				$index->setDefaultSearchField("basename");
 				$query = $httpVars["query"];
 			}
-			$hits = $index->find($query);
+            if($query == "*"){
+                $index->setDefaultSearchField("ajxp_node");
+                $query = "yes";
+                $hits = $index->find($query, "node_url", SORT_STRING);
+            }else{
+                $hits = $index->find($query);
+            }
             $commitIndex = false;
 
 			AJXP_XMLWriter::header();
@@ -222,6 +228,7 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
         }else{
        		$index =  $this->loadIndex(ConfService::getRepository()->getId());
         }
+        Zend_Search_Lucene_Analysis_Analyzer::setDefault( new Zend_Search_Lucene_Analysis_Analyzer_Common_TextNum_CaseInsensitive());
 
         if($oldNode != null && $copy == false){
             $oldDocId = $this->getIndexedDocumentId($index, $oldNode);
@@ -299,6 +306,7 @@ class AjxpLuceneIndexer extends AJXP_Plugin{
         $doc->addField(Zend_Search_Lucene_Field::Keyword("node_url", $ajxpNode->getUrl()), SystemTextEncoding::getEncoding());
         $doc->addField(Zend_Search_Lucene_Field::Keyword("node_path", str_replace("/", "AJXPFAKESEP", $ajxpNode->getPath())), SystemTextEncoding::getEncoding());
         $doc->addField(Zend_Search_Lucene_Field::Text("basename", basename($ajxpNode->getPath())), SystemTextEncoding::getEncoding());
+        $doc->addField(Zend_Search_Lucene_Field::Text("ajxp_node", "yes"), SystemTextEncoding::getEncoding());
         foreach ($this->metaFields as $field){
             if($ajxpNode->$field != null){
                 $doc->addField(Zend_Search_Lucene_Field::Text("ajxp_meta_$field", $ajxpNode->$field), SystemTextEncoding::getEncoding());

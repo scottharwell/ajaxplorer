@@ -235,6 +235,7 @@ class AuthService
         $parentUser = $confDriver->createUserObject($parentUserId);
         $temporaryUser = $confDriver->createUserObject($temporaryUserId);
         $temporaryUser->mergedRole = $parentUser->mergedRole;
+        $temporaryUser->rights = $parentUser->rights;
         $temporaryUser->setGroupPath($parentUser->getGroupPath());
         $temporaryUser->setParent($parentUserId);
         $temporaryUser->setResolveAsParent(true);
@@ -381,6 +382,23 @@ class AuthService
 	public static function bootSequence(&$START_PARAMETERS){
 
         if(@file_exists(AJXP_CACHE_DIR."/admin_counted")) return;
+        $rootRole = AuthService::getRole("ROOT_ROLE", false);
+        if($rootRole === false){
+            $rootRole = new AJXP_Role("ROOT_ROLE");
+            $rootRole->setLabel("Root Role");
+            $rootRole->setAutoApplies(array("standard"));
+            foreach (ConfService::getRepositoriesList() as $repositoryId => $repoObject)
+            {
+                if($repoObject->isTemplate) continue;
+                $gp = $repoObject->getGroupPath();
+                if(empty($gp) || $gp == "/"){
+                    if($repoObject->getDefaultRight() != ""){
+                        $rootRole->setAcl($repositoryId, $repoObject->getDefaultRight());
+                    }
+                }
+            }
+            AuthService::updateRole($rootRole);
+        }
 		$adminCount = AuthService::countAdminUsers();
 		if($adminCount == 0){
 			$authDriver = ConfService::getAuthDriverImpl();
@@ -391,8 +409,16 @@ class AuthService
 			 AuthService::createUser("admin", $adminPass, true);
 			 if(ADMIN_PASSWORD == INITIAL_ADMIN_PASSWORD)
 			 {
-				 $START_PARAMETERS["ALERT"] .= "Warning! User 'admin' was created with the initial common password 'admin'. \\nPlease log in as admin and change the password now!";
+                 $userObject = ConfService::getConfStorageImpl()->createUserObject("admin");
+                 $userObject->setAdmin(true);
+                 AuthService::updateAdminRights($userObject);
+                 if(AuthService::changePasswordEnabled()){
+                     $userObject->setLock("pass_change");
+                 }
+                 $userObject->save("superuser");
+                 $START_PARAMETERS["ALERT"] .= "Warning! User 'admin' was created with the initial password '". INITIAL_ADMIN_PASSWORD ."'. \\nPlease log in as admin and change the password now!";
 			 }
+            AuthService::updateUser($userObject);
 		}else if($adminCount == -1){
 			// Here we may come from a previous version! Check the "admin" user and set its right as admin.
 			$confStorage = ConfService::getConfStorageImpl();
@@ -459,9 +485,10 @@ class AuthService
 		foreach (ConfService::getRepositoriesList() as $repoId => $repoObject)
 		{
             if(!self::allowedForCurrentGroup($repoObject, $adminUser)) continue;
+            if($repoObject->hasParent() && $repoObject->getParentId() != $adminUser->getId()) continue;
 			$adminUser->personalRole->setAcl($repoId, "rw");
 		}
-		$adminUser->save();
+		$adminUser->save("superuser");
 		return $adminUser;
 	}
 	
@@ -483,9 +510,9 @@ class AuthService
             foreach(AuthService::getRolesList(array(), true) as $roleId => $roleObject){
                 if(!self::allowedForCurrentGroup($roleObject, $userObject)) continue;
                 if($userObject->getProfile() == "shared" && $roleObject->autoAppliesTo("shared")){
-                    $userObject->addRole($roleId);
+                    $userObject->addRole($roleObject);
                 }else if($roleObject->autoAppliesTo("standard")){
-                    $userObject->addRole($roleId);
+                    $userObject->addRole($roleObject);
                 }
             }
 		}
@@ -499,7 +526,7 @@ class AuthService
         foreach(AuthService::getRolesList(array(), true) as $roleId => $roleObject){
             if(!self::allowedForCurrentGroup($roleObject, $userObject)) continue;
             if($roleObject->autoAppliesTo($userObject->getProfile()) || $roleObject->autoAppliesTo("all")){
-                $userObject->addRole($roleId);
+                $userObject->addRole($roleObject);
             }
         }
     }
@@ -585,6 +612,17 @@ class AuthService
         $userId = AuthService::filterUserSensitivity($userId);
 		$authDriver = ConfService::getAuthDriverImpl();
 		$authDriver->changePassword($userId, $userPass);
+        if($authDriver->getOption("TRANSMIT_CLEAR_PASS") === true){
+            // We can directly update the HA1 version of the WEBDAV Digest
+            $realm = ConfService::getCoreConf("WEBDAV_DIGESTREALM");
+            AJXP_Logger::debug(("{$userId}:{$realm}:{$userPass}"));
+            $ha1 = md5("{$userId}:{$realm}:{$userPass}");
+            $zObj = ConfService::getConfStorageImpl()->createUserObject($userId);
+            $wData = $zObj->getPref("AJXP_WEBDAV_DATA");
+            $wData["HA1"] = $ha1;
+            $zObj->setPref("AJXP_WEBDAV_DATA", $wData);
+            $zObj->save();
+        }
 		AJXP_Logger::logAction("Update Password", array("user_id"=>$userId));
 		return true;
 	}

@@ -134,7 +134,7 @@ class ShareCenter extends AJXP_Plugin{
 					header("Content-type:text/plain");
 					$result = $this->createSharedRepository($httpVars, $this->repository, $this->accessDriver);
 					print($result);
-            	}else if($subAction == "list_shared_users"){
+            	}/*else if($subAction == "list_shared_users"){
             		header("Content-type:text/html");
             		if(!ConfService::getAuthDriverImpl()->usersEditable()){
             			break;
@@ -149,7 +149,8 @@ class ShareCenter extends AJXP_Plugin{
                     $users = "";
                     $index = 0;
                     if($regexp != null && !count($allUsers)){
-                        $users .= "<li class='complete_user_entry_temp' data-temporary='true' data-label='$crtValue'><span class='user_entry_label'>$crtValue (create user)</span></li>";
+                        $mess = ConfService::getMessages();
+                        $users .= "<li class='complete_user_entry_temp' data-temporary='true' data-label='$crtValue'><span class='user_entry_label'>$crtValue (".$mess["share_center.49"].")</span></li>";
                     }
                     if(count($allGroups)){
                         if($regexp == null) $users .= "<li class='complete_group_entry' data-group='/' data-label='My Group'><span class='user_entry_label'>My Group</span></li>";
@@ -170,7 +171,7 @@ class ShareCenter extends AJXP_Plugin{
             		if(strlen($users)) {
             			print("<ul>".$users."</ul>");
             		}
-            	}else{
+            	}*/else{
 					$file = AJXP_Utils::decodeSecureMagic($httpVars["file"]);
                     if(!isSet($httpVars["downloadlimit"])){
                         $httpVars["downloadlimit"] = 0;
@@ -220,7 +221,7 @@ class ShareCenter extends AJXP_Plugin{
                         $this->watcher->setWatchOnFolder(
                             $node,
                             AuthService::getLoggedUser()->getId(),
-                            MetaWatchRegister::$META_WATCH_USERS,
+                            MetaWatchRegister::$META_WATCH_USERS_READ,
                             array($elementId)
                         );
                     }else{
@@ -231,8 +232,9 @@ class ShareCenter extends AJXP_Plugin{
                         );
                     }
                 }
+                $mess = ConfService::getMessages();
                 AJXP_XMLWriter::header();
-                AJXP_XMLWriter::sendMessage("Successfully updated watch status", null);
+                AJXP_XMLWriter::sendMessage($mess["share_center.47"], null);
                 AJXP_XMLWriter::close();
 
             break;
@@ -259,7 +261,7 @@ class ShareCenter extends AJXP_Plugin{
                     if($elementType == "file"){
                         $pData = self::loadPublicletData($metadata["element"]);
                         if($pData["OWNER_ID"] != AuthService::getLoggedUser()->getId()){
-                            throw new Exception("You are not allowed to access this data");
+                            throw new Exception($messages["share_center.48"]);
                         }
                         if(isSet($metadata["short_form_url"])){
                             $link = $metadata["short_form_url"];
@@ -270,7 +272,7 @@ class ShareCenter extends AJXP_Plugin{
                             $elementWatch = $this->watcher->hasWatchOnNode(
                                 $node,
                                 AuthService::getLoggedUser()->getId(),
-                                MetaWatchRegister::$META_WATCH_USERS
+                                MetaWatchRegister::$META_WATCH_USERS_NAMESPACE
                             );
                         }
                         $jsonData = array(
@@ -285,7 +287,7 @@ class ShareCenter extends AJXP_Plugin{
                         $repoId = $metadata["element"];
                         $repo = ConfService::getRepositoryById($repoId);
                         if($repo->getOwner() != AuthService::getLoggedUser()->getId()){
-                            throw new Exception("You are not allowed to access this data");
+                            throw new Exception($messages["share_center.48"]);
                         }
                         if($this->watcher != false){
                             $elementWatch = $this->watcher->hasWatchOnNode(
@@ -300,7 +302,8 @@ class ShareCenter extends AJXP_Plugin{
                             "repositoryId"  => $repoId,
                             "label"         => $repo->getDisplay(),
                             "entries"       => $sharedEntries,
-                            "element_watch" => $elementWatch
+                            "element_watch" => $elementWatch,
+                            "repository_url"=> AJXP_Utils::detectServerURL(true)."?goto=". $repo->getSlug() ."/"
                         );
                     }
                     echo json_encode($jsonData);
@@ -454,7 +457,7 @@ class ShareCenter extends AJXP_Plugin{
         '   $id = str_replace(".php", "", basename(__FILE__)); '."\n". // Not using "" as php would replace $ inside
         '   $cypheredData = base64_decode("'.$outputData.'"); '."\n".
         '   $iv = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_RAND); '."\n".
-        '   $inputData = trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, $id, $cypheredData, MCRYPT_MODE_ECB, $iv));  '."\n".
+        '   $inputData = trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, $id, $cypheredData, MCRYPT_MODE_ECB, $iv), "\0");  '."\n".
         '   if (md5($inputData) != $id) { header("HTTP/1.0 401 Not allowed, script was modified"); exit(); } '."\n".
         '   // Ok extract the data '."\n".
         '   $data = unserialize($inputData); ShareCenter::loadPubliclet($data); ?'.'>';
@@ -474,7 +477,7 @@ class ShareCenter extends AJXP_Plugin{
         	return rtrim($dlURL, "/");
         }else{
 	        $fullUrl = AJXP_Utils::detectServerURL() . dirname($_SERVER['REQUEST_URI']);
-	        return str_replace("\\", "/", $fullUrl.rtrim(str_replace(AJXP_INSTALL_PATH, "", $downloadFolder), "/"));
+            return str_replace("\\", "/", rtrim($fullUrl, "/").rtrim(str_replace(AJXP_INSTALL_PATH, "", $downloadFolder), "/"));
         }
     }
 
@@ -608,8 +611,11 @@ class ShareCenter extends AJXP_Plugin{
     function computeSharedRepositoryAccessRights($repoId, $mixUsersAndGroups, $currentFileUrl){
 
         $loggedUser = AuthService::getLoggedUser();
-        $users = AuthService::listUsers();
-        $groups = AuthService::listChildrenGroups("/");
+        $users = AuthService::getUsersForRepository($repoId);
+        $baseGroup = "/";
+        $groups = AuthService::listChildrenGroups($baseGroup);
+        $mess = ConfService::getMessages();
+        $groups[$baseGroup] = $mess["447"];
         $sharedEntries = array();
         if(!$mixUsersAndGroups){
             $sharedGroups = array();
@@ -637,18 +643,20 @@ class ShareCenter extends AJXP_Plugin{
         foreach ($users as $userId => $userObject) {
             if($userObject->getId() == $loggedUser->getId()) continue;
             $ri = $userObject->personalRole->getAcl($repoId);
+            $uLabel = $userObject->personalRole->filterParameterValue("core.conf", "USER_DISPLAY_NAME", AJXP_REPO_SCOPE_ALL, "");
+            if(empty($uLabel)) $uLabel = $userId;
             if(!empty($ri)){
                 $entry =  array(
                     "ID"    => $userId,
                     "TYPE"  => $userObject->hasParent()?"tmp_user":"user",
-                    "LABEL" => $userId,
+                    "LABEL" => $uLabel,
                     "RIGHT" => $userObject->personalRole->getAcl($repoId)
                 );
                 if($this->watcher !== false){
                     $entry["WATCH"] = $this->watcher->hasWatchOnNode(
                         new AJXP_Node($currentFileUrl),
                         $userId,
-                        MetaWatchRegister::$META_WATCH_USERS
+                        MetaWatchRegister::$META_WATCH_USERS_NAMESPACE
                     );
                 }
                 if(!$mixUsersAndGroups){
@@ -769,9 +777,10 @@ class ShareCenter extends AJXP_Plugin{
         }
         if(isSet($editingRepo)){
             $newRepo = $editingRepo;
-            $newRepo->setDisplay($label);
-            $newRepo->options = array_merge($newRepo->options, $options);
-            ConfService::replaceRepository($httpVars["repository_id"], $newRepo);
+            if($editingRepo->getDisplay() != $label){
+                $newRepo->setDisplay($label);
+                ConfService::replaceRepository($httpVars["repository_id"], $newRepo);
+            }
         }else{
             if($repository->getOption("META_SOURCES")){
                 $options["META_SOURCES"] = $repository->getOption("META_SOURCES");
@@ -839,11 +848,11 @@ class ShareCenter extends AJXP_Plugin{
                 $userObject->personalRole->clearAcls();
                 $userObject->setParent($loggedUser->id);
                 $userObject->setGroupPath($loggedUser->getGroupPath());
+                $userObject->setProfile("shared");
                 AJXP_Controller::applyHook("user.after_create", array($userObject));
             }
             // CREATE USER WITH NEW REPO RIGHTS
             $userObject->personalRole->setAcl($newRepo->getUniqueId(), $uRights[$userName]);
-            $userObject->setProfile("shared");
             $userObject->save("superuser");
             if($this->watcher !== false){
                 // Register a watch on the current folder for shared user
@@ -851,7 +860,7 @@ class ShareCenter extends AJXP_Plugin{
                     $this->watcher->setWatchOnFolder(
                         new AJXP_Node($this->urlBase.$file),
                         $userName,
-                        MetaWatchRegister::$META_WATCH_USERS,
+                        MetaWatchRegister::$META_WATCH_USERS_CHANGE,
                         array(AuthService::getLoggedUser()->getId())
                     );
                 }else{

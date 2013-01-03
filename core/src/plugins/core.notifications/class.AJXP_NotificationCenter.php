@@ -31,13 +31,110 @@ class AJXP_NotificationCenter extends AJXP_Plugin
     static private $instance;
     private $userId;
     private $useQueue = false ;
+    /**
+     * @var AJXP_FeedStore|bool
+     */
+    private $eventStore = false;
+    /**
+     * @var bool|AJXP_MessageExchanger
+     */
+    private $msgExchanger = false;
 
     public function init($options){
         parent::init($options);
         $this->userId = AuthService::getLoggedUser() !== null ? AuthService::getLoggedUser()->getId() : "shared";
         $this->useQueue = $this->pluginConf["USE_QUEUE"];
+        $eStore = ConfService::getInstance()->getUniquePluginImplInst("FEED_DRIVER", "feed");
+        if(is_a($eStore, "AJXP_FeedStore")){
+            $this->eventStore = $eStore;
+        }
+        $msgBroker = ConfService::getInstance()->getUniquePluginImplInst("MQ_DRIVER", "mq");
+        if(is_a($msgBroker, "AJXP_MessageExchanger")){
+            $this->msgExchanger = $msgBroker;
+        }
+
     }
 
+    public function persistChangeHookToFeed(AJXP_Node $oldNode = null, AJXP_Node $newNode = null, $copy = false, $targetNotif = "new"){
+        if(!$this->eventStore) return;
+
+        $n = ($oldNode == null ? $newNode : $oldNode);
+        $repoId = $n->getRepositoryId();
+        $userId = AuthService::getLoggedUser()->getId();
+        $userGroup = AuthService::getLoggedUser()->getGroupPath();
+        $repository = ConfService::getRepositoryById($repoId);
+        $repositoryScope = $repository->securityScope();
+        $repositoryScope = ($repositoryScope !== false ? $repositoryScope : "ALL");
+
+        $this->eventStore->persistEvent("node.change", func_get_args(), $repoId, $repositoryScope, $userId, $userGroup);
+
+    }
+
+    public function loadUserFeed($actionName, $httpVars, $fileVars){
+
+        if(!$this->eventStore) return;
+        $u = AuthService::getLoggedUser();
+        $userId = $u->getId();
+        $userGroup = $u->getGroupPath();
+        $authRepos = array();
+        if(isSet($httpVars["repository_id"]) && $u->mergedRole->canRead($httpVars["repository_id"])){
+            $authRepos[] = $httpVars["repository_id"];
+        }else{
+            $acls = AuthService::getLoggedUser()->mergedRole->listAcls();
+            foreach($acls as $repoId => $rightString){
+                if($rightString == "r" | $rightString == "rw") $authRepos[] = $repoId;
+            }
+        }
+        $res = $this->eventStore->loadEvents($authRepos, $userId, $userGroup, 0, 10);
+
+        // APPEND USER ALERT IN THE SAME QUERY FOR NOW
+        $this->loadUserAlerts("", $httpVars, $fileVars);
+        if(!count($res)) return;
+        $mess = ConfService::getMessages();
+        echo("<h2>".$mess["notification_center.4"]."</h2>");
+        echo("<ul class='notification_list'>");
+        foreach($res as $n => $object){
+            $args = $object->arguments;
+            $oldNode = (isSet($args[0]) ? $args[0] : null);
+            $newNode = (isSet($args[1]) ? $args[1] : null);
+            $copy = (isSet($args[2]) && $args[2] === true ? true : null);
+            $notif = $this->generateNotificationFromChangeHook($oldNode, $newNode, $copy, "unify");
+            if($notif !== false && $notif->getNode() !== false){
+                $notif->setAuthor($object->author);
+                $notif->setDate(intval($object->date));
+                echo("<li>");
+                echo($notif->getDescriptionLong(true));
+                echo("</li>");
+            }
+        }
+        echo("</ul>");
+
+    }
+
+
+    public function loadUserAlerts($actionName, $httpVars, $fileVars){
+
+        if(!$this->eventStore) return;
+        $u = AuthService::getLoggedUser();
+        $userId = $u->getId();
+        $repositoryFilter = null;
+        if(isSet($httpVars["repository_id"]) && $u->mergedRole->canRead($httpVars["repository_id"])){
+            $repositoryFilter = $httpVars["repository_id"];
+        }
+        $res = $this->eventStore->loadAlerts($userId, $repositoryFilter);
+        if(!count($res)) return;
+
+        $mess = ConfService::getMessages();
+        echo("<h2>".$mess["notification_center.3"]."</h2>");
+        echo("<ul class='notification_list'>");
+        foreach ($res as $notification){
+            echo("<li>");
+            echo($notification->getDescriptionLong(true));
+            echo("</li>");
+        }
+        echo("</ul>");
+
+    }
     /**
      * @param AJXP_Node $oldNode
      * @param AJXP_Node $newNode
@@ -62,6 +159,10 @@ class AJXP_NotificationCenter extends AJXP_Plugin
             if($oldNode->getUrl() == $newNode->getUrl()){
                 $type = AJXP_NOTIF_NODE_CHANGE;
                 $primaryNode = $newNode;
+            }else if(dirname($oldNode->getPath()) == dirname($newNode->getPath())){
+                $type = AJXP_NOTIF_NODE_RENAME;
+                $primaryNode = $newNode;
+                $secondNode = $oldNode;
             }else if($targetNotif == "new"){
                 $type = $copy ? AJXP_NOTIF_NODE_COPY_FROM : AJXP_NOTIF_NODE_MOVE_FROM;
                 $primaryNode = $newNode;
@@ -70,6 +171,10 @@ class AJXP_NotificationCenter extends AJXP_Plugin
                 $type = $copy ? AJXP_NOTIF_NODE_COPY_TO : AJXP_NOTIF_NODE_MOVE_TO;
                 $primaryNode = $oldNode;
                 $secondNode = $newNode;
+            }else if($targetNotif == "unify"){
+                $type = $copy ? AJXP_NOTIF_NODE_COPY : AJXP_NOTIF_NODE_MOVE;
+                $primaryNode = $newNode;
+                $secondNode = $oldNode;
             }
         }
         $notif->setNode($primaryNode);
@@ -82,8 +187,8 @@ class AJXP_NotificationCenter extends AJXP_Plugin
     }
 
     public function consumeQueue($action, $httpVars, $fileVars){
-        if($action != "consume_notification_queue") return;
-        $queueObjects = ConfService::getConfStorageImpl()->consumeQueue("user_notifications");
+        if($action != "consume_notification_queue" || $this->msgExchanger === false) return;
+        $queueObjects = $this->msgExchanger->consumeWorkerChannel("user_notifications");
         if(is_array($queueObjects)){
             AJXP_Logger::debug("Processing notification queue, ".count($queueObjects)." notifs to handle");
             foreach($queueObjects as $notification){
@@ -112,30 +217,20 @@ class AJXP_NotificationCenter extends AJXP_Plugin
     }
 
     protected function sendToQueue(AJXP_Notification $notification){
-        if(!$this->useQueue){
+        if(!$this->useQueue && $this->msgExchanger){
             AJXP_Logger::debug("SHOULD DISPATCH NOTIFICATION ON ".$notification->getNode()->getUrl()." ACTION ".$notification->getAction());
             $this->dispatch($notification);
         }else{
-            ConfService::getConfStorageImpl()->storeObjectToQueue("user_notifications", $notification);
+            $this->msgExchanger->publishWorkerMessage("user_notifications", $notification);
         }
     }
 
     public function dispatch(AJXP_Notification $notification){
-        $mailers = AJXP_PluginsService::getInstance()->getPluginsByType("mailer");
-        $mailer = new AjxpMailer("id", "basedir");
-        if(count($mailers)){
-            $mailer = array_pop($mailers);
-            try{
-                $mailer->sendMail(
-                    array($notification->getTarget()),
-                    $notification->getDescriptionShort(),
-                    $notification->getDescriptionLong(),
-                    $notification->getAuthor()
-                );
-            }catch (Exception $e){
-                AJXP_Logger::logAction("ERROR : ".$e->getMessage());
-            }
+        if($this->eventStore){
+            $this->eventStore->persistAlert($notification);
         }
+        AJXP_Controller::applyHook("msg.notification", array(&$notification));
+        return;
     }
 
 }

@@ -23,8 +23,46 @@ defined('AJXP_EXEC') or die('Access not allowed');
 
 class AjxpMailer extends AJXP_Plugin
 {
+
+    var $mailCache;
+
+    public function init($options){
+        parent::init($options);
+        if(AJXP_SERVER_DEBUG){
+            $this->mailCache = $this->getPluginWorkDir(true)."/mailbox";
+        }
+    }
+
+    public function processNotification(AJXP_Notification &$notification){
+        $mailers = AJXP_PluginsService::getInstance()->getPluginsByType("mailer");
+        if(count($mailers)){
+            $mailer = array_pop($mailers);
+            try{
+                $mailer->sendMail(
+                    array($notification->getTarget()),
+                    $notification->getDescriptionShort(),
+                    $notification->getDescriptionLong(),
+                    $notification->getAuthor()
+                );
+            }catch (Exception $e){
+                AJXP_Logger::logAction("ERROR : ".$e->getMessage());
+            }
+        }
+    }
+
     public function sendMail($recipients, $subject, $body, $from = null){
-        AJXP_Logger::debug("SENDING EMAIL TO ".implode(",", $recipients)." Subject : $subject\n$body");
+        if(AJXP_SERVER_DEBUG){
+            $line = "------------------------------------------------------------------------\n";
+            file_put_contents($this->mailCache, "Sending mail from ".print_r($from, true)." to ".print_r($recipients, true)."\n\n$subject\n\n$body\n".$line, FILE_APPEND);
+        }
+        $prepend = ConfService::getCoreConf("SUBJECT_PREPEND", "mailer");
+        $append = ConfService::getCoreConf("SUBJECT_APPEND", "mailer");
+        $layout = ConfService::getCoreConf("BODY_LAYOUT", "mailer");
+        if(!empty($prepend)) $subject = $prepend ." ". $subject;
+        if(!empty($append)) $subject .= " ".$append;
+        if(strpos($layout, "AJXP_MAIL_BODY") !== false){
+            $body = str_replace("AJXP_MAIL_BODY", $body, $layout);
+        }
         $this->sendMailImpl($recipients, $subject, $body, $from = null);
     }
 
@@ -33,10 +71,11 @@ class AjxpMailer extends AJXP_Plugin
     }
 
     public function sendMailAction($actionName, $httpVars, $fileVars){
-        AJXP_Logger::debug("Send email", $httpVars);
+
+        $mess = ConfService::getMessages();
         $mailers = AJXP_PluginsService::getInstance()->getActivePluginsForType("mailer");
         if(!count($mailers)){
-            throw new Exception("No mailer found");
+            throw new Exception($mess["core.mailer.3"]);
         }
 
         $mailer = array_pop($mailers);
@@ -53,11 +92,11 @@ class AjxpMailer extends AJXP_Plugin
         if(count($emails)){
             $mailer->sendMail($emails, $subject, $body, $from);
             AJXP_XMLWriter::header();
-            AJXP_XMLWriter::sendMessage("Email sent succsesfully to ".count($emails)." users", null);
+            AJXP_XMLWriter::sendMessage(str_replace("%s", count($emails), $mess["core.mailer.1"]), null);
             AJXP_XMLWriter::close();
         }else{
             AJXP_XMLWriter::header();
-            AJXP_XMLWriter::sendMessage(null, "No email adresses fonud to send the email!");
+            AJXP_XMLWriter::sendMessage(null, $mess["core.mailer.2"]);
             AJXP_XMLWriter::close();
         }
     }
@@ -70,7 +109,8 @@ class AjxpMailer extends AJXP_Plugin
         }else if(AuthService::getLoggedUser() != null){
             $arr = $this->resolveAdresses(array(AuthService::getLoggedUser()));
             if(count($arr)) $fromResult = $arr[0];
-        }else{
+        }
+        if(!count($fromResult)){
             $f = ConfService::getCoreConf("FROM", "mailer");
             $fName = ConfService::getCoreConf("FROM_NAME", "mailer");
             $fromResult = array("adress" => $f, "name" => $fName );

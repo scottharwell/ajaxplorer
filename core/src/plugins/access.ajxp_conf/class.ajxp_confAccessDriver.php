@@ -216,13 +216,14 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                 AJXP_Controller::applyHook("ajxp_conf.list_config_nodes", array(&$rootNodes));
 				$dir = trim(AJXP_Utils::decodeSecureMagic((isset($httpVars["dir"])?$httpVars["dir"]:"")), " /");
                 if($dir != ""){
+                    $hash = null;
+                    if(strstr(urldecode($dir), "#") !== false){
+                        list($dir, $hash) = explode("#", urldecode($dir));
+                    }
     				$splits = explode("/", $dir);
                     $root = array_shift($splits);
                     if(count($splits)){
                         $child = $splits[0];
-                        if(strstr(urldecode($child), "#") !== false){
-                            list($child, $hash) = explode("#", urldecode($child));
-                        }
                         if(isSet($rootNodes[$root]["CHILDREN"][$child])){
                             $callback = $rootNodes[$root]["CHILDREN"][$child]["LIST"];
                             if(is_string($callback) && method_exists($this, $callback)){
@@ -242,6 +243,10 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                     $parentName = "/";
                     $nodes = $rootNodes;
                 }
+                if(isSet($httpVars["file"])){
+                    $parentName = $httpVars["dir"]."/";
+                    $nodes = array(basename($httpVars["file"]) =>  array("LABEL" => basename($httpVars["file"])));
+                }
                 if(isSet($nodes)){
                     AJXP_XMLWriter::header();
                     AJXP_XMLWriter::sendFilesListComponentConfig('<columns switchGridMode="filelist"><column messageId="ajxp_conf.1" attributeName="ajxp_label" sortType="String"/></columns>');
@@ -251,6 +256,7 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                     AJXP_XMLWriter::close();
 
                 }
+
 			break;
 			
 			case "stat" :
@@ -340,6 +346,23 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                     }else if(isSet($groupPath)){
                         $data["GROUP"] = array("PATH" => $groupPath, "LABEL" => $groupLabel);
                     }
+
+                    $scope = "role";
+                    if($roleGroup) $scope = "group";
+                    else if(isSet($userObject)) $scope = "user";
+                    $data["SCOPE_PARAMS"] = array();
+                    $nodes = AJXP_PluginsService::getInstance()->searchAllManifests("//param[contains(@scope,'".$scope."')]|//global_param[contains(@scope,'".$scope."')]", "node", false, true, true);
+                    foreach($nodes as $node){
+                        $pId = $node->parentNode->parentNode->attributes->getNamedItem("id")->nodeValue;
+                        $origName = $node->attributes->getNamedItem("name")->nodeValue;
+                        $node->attributes->getNamedItem("name")->nodeValue = "AJXP_REPO_SCOPE_ALL/".$pId."/".$origName;
+                        $nArr = array();
+                        foreach($node->attributes as $attrib){
+                            $nArr[$attrib->nodeName] = AJXP_XMLWriter::replaceAjxpXmlKeywords($attrib->nodeValue);
+                        }
+                        $data["SCOPE_PARAMS"][] = $nArr;
+                    }
+
                     echo json_encode($data);
                 }
 			break;
@@ -404,9 +427,9 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                 try{
                     $originalRole->bunchUpdate($roleData);
                     if(isSet($userObject)){
-                        //$userObject->personalRole = $originalRole;
-                        //$userObject->save("superuser");
-                        AuthService::updateRole($originalRole, $userObject);
+                        $userObject->personalRole = $originalRole;
+                        $userObject->save("superuser");
+                        //AuthService::updateRole($originalRole, $userObject);
                     }else{
                         AuthService::updateRole($originalRole);
                     }
@@ -991,6 +1014,18 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 							$repo->addOption($key, $value);
 						}
 					}
+                    if($repo->getOption("DEFAULT_RIGHTS")){
+                        $gp = $repo->getGroupPath();
+                        if(empty($gp) || $gp == "/"){
+                            $defRole = AuthService::getRole("ROOT_ROLE");
+                        }else{
+                            $defRole = AuthService::getRole("AJXP_GRP_".$gp, true);
+                        }
+                        if($defRole !== false){
+                            $defRole->setAcl($repId, $repo->getOption("DEFAULT_RIGHTS"));
+                            AuthService::updateRole($defRole);
+                        }
+                    }
 					if(is_file(AJXP_TESTS_FOLDER."/plugins/test.ajxp_".$repo->getAccessType().".php")){
 					    chdir(AJXP_TESTS_FOLDER."/plugins");
 						include(AJXP_TESTS_FOLDER."/plugins/test.ajxp_".$repo->getAccessType().".php");
@@ -1171,14 +1206,20 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
                 if(!is_array($values)) $values = array();
                 echo("<plugin_settings_values>");
                 foreach($values as $key => $value){
+                    $attribute = true;
                     if($definitions[$key]["type"] == "array" && is_array($value)){
                         $value = implode(",", $value);
                     }else if($definitions[$key]["type"] == "boolean"){
                         $value = ($value === true || $value === "true" || $value == 1?"true":"false");
                     }else if($definitions[$key]["type"] == "textarea"){
                         //$value = str_replace("\\n", "\n", $value);
+                        $attribute = false;
                     }
-                    echo("<param name=\"$key\" value=\"".AJXP_Utils::xmlEntities($value)."\"/>");
+                    if($attribute){
+                        echo("<param name=\"$key\" value=\"".AJXP_Utils::xmlEntities($value)."\"/>");
+                    }else{
+                        echo("<param name=\"$key\" cdatavalue=\"true\"><![CDATA[".$value."]]></param>");
+                    }
                 }
                 if($ajxpPlugin->getType() != "core"){
                     echo("<param name=\"AJXP_PLUGIN_ENABLED\" value=\"".($ajxpPlugin->isEnabled()?"true":"false")."\"/>");
@@ -1328,6 +1369,8 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
             $users = AuthService::listUsers($baseGroup, "", $offset, $USER_PER_PAGE);
             if($hashValue == 1){
                 $groups = AuthService::listChildrenGroups($baseGroup);
+            }else{
+                $groups = array();
             }
         }else{
             $users = AuthService::listUsers($baseGroup);
@@ -1376,6 +1419,8 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 				$rightsString = implode(", ", $r);
 			}
             $nodeLabel = $userId;
+            $test = $userObject->personalRole->filterParameterValue("core.conf", "USER_DISPLAY_NAME", AJXP_REPO_SCOPE_ALL, "");
+            if(!empty($test)) $nodeLabel = $test;
             $scheme = AuthService::getAuthScheme($userId);
 			AJXP_XMLWriter::renderNode("/users/".$userId, $nodeLabel, true, array(
 				"isAdmin" => $mess[($isAdmin?"ajxp_conf.14":"ajxp_conf.15")], 
@@ -1415,7 +1460,8 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 				"icon" => "user-acl.png",
 				"rights_summary" => $rightsString,
                 "is_default"    => implode(",", $roleObject->listAutoApplies()), //($roleObject->autoAppliesTo("standard") ? $mess[440]:$mess[441]),
-				"ajxp_mime" => "role"
+				"ajxp_mime" => "role",
+                "text"      => $roleObject->getLabel()
 			));
 		}
 	}
@@ -1625,7 +1671,8 @@ class ajxp_confAccessDriver extends AbstractAccessDriver
 		$user = $confStorage->createUserObject($userId);
 		//if($user->hasParent()) return $user;
 		if($addOrRemove == "add"){
-			$user->addRole($roleId);
+            $roleObject = AuthService::getRole($roleId);
+			$user->addRole($roleObject);
 		}else{
 			$user->removeRole($roleId);
 		}

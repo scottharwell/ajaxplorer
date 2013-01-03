@@ -68,6 +68,63 @@ Class.create("RemoteNodeProvider", {
 		}.bind(this);	
 		conn.sendAsync();
 	},
+
+    /**
+   	 * Load a node
+   	 * @param node AjxpNode
+   	 * @param nodeCallback Function On node loaded
+   	 */
+   	loadLeafNodeSync : function(node, nodeCallback){
+   		var conn = new Connexion();
+   		conn.addParameter("get_action", "ls");
+   		conn.addParameter("options", "al");
+   		conn.addParameter("dir", getRepName(node.getPath()));
+        conn.addParameter("file", getBaseName(node.getPath()));
+   		if(this.properties){
+   			$H(this.properties).each(function(pair){
+   				conn.addParameter(pair.key, pair.value);
+   			});
+   		}
+   		conn.onComplete = function (transport){
+   			try{
+   				this.parseNodes(node, transport, null, nodeCallback, true);
+   			}catch(e){
+   				if(ajaxplorer) ajaxplorer.displayMessage('ERROR', 'Loading error :'+e.message);
+   				else alert('Loading error :'+ e.message);
+   			}
+   		}.bind(this);
+   		conn.sendSync();
+   	},
+
+    refreshNodeAndReplace : function(node, onComplete){
+
+        var conn = new Connexion();
+        conn.addParameter("get_action", "ls");
+        conn.addParameter("options", "al");
+        conn.addParameter("dir", getRepName(node.getPath()));
+        conn.addParameter("file", getBaseName(node.getPath()));
+        if(this.properties){
+            $H(this.properties).each(function(pair){
+                conn.addParameter(pair.key, pair.value);
+            });
+        }
+
+        var nodeCallback = function(newNode){
+            node.replaceBy(newNode, "override");
+            if(onComplete) onComplete(node);
+        };
+        conn.onComplete = function (transport){
+            try{
+                this.parseNodes(node, transport, null, nodeCallback, true);
+            }catch(e){
+                if(ajaxplorer) ajaxplorer.displayMessage('ERROR', 'Loading error :'+e.message);
+                else alert('Loading error :'+ e.message);
+            }
+        }.bind(this);
+        conn.sendAsync();
+
+    },
+
 	/**
 	 * Parse the answer and create AjxpNodes
 	 * @param origNode AjxpNode
@@ -75,13 +132,15 @@ Class.create("RemoteNodeProvider", {
 	 * @param nodeCallback Function
 	 * @param childCallback Function
 	 */
-	parseNodes : function(origNode, transport, nodeCallback, childCallback){
+	parseNodes : function(origNode, transport, nodeCallback, childCallback, childrenOnly){
 		if(!transport.responseXML || !transport.responseXML.documentElement) return;
 		var rootNode = transport.responseXML.documentElement;
 		var children = rootNode.childNodes;
-		var contextNode = this.parseAjxpNode(rootNode);
-		origNode.replaceBy(contextNode);
-		
+        if(!childrenOnly){
+            var contextNode = this.parseAjxpNode(rootNode);
+            origNode.replaceBy(contextNode, "merge");
+        }
+
 		// CHECK FOR MESSAGE OR ERRORS
 		var errorNode = XPathSelectSingleNode(rootNode, "error|message");
 		if(errorNode){
@@ -113,7 +172,7 @@ Class.create("RemoteNodeProvider", {
 		var children = XPathSelectNodes(rootNode, "tree");
 		children.each(function(childNode){
 			var child = this.parseAjxpNode(childNode);
-			origNode.addChild(child);
+			if(!childrenOnly) origNode.addChild(child);
 			if(childCallback){
 				childCallback(child);
 			}

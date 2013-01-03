@@ -68,8 +68,18 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 
         // PERSONAL INFORMATIONS
         $hasExposed = false;
-        $paramNodes = AJXP_PluginsService::searchAllManifests("//server_settings/param[contains(@scope,'user') and @expose='true']", "node", false, false, true);
-        if(is_array($paramNodes) && count($paramNodes)) $hasExposed = true;
+        $cacheHasExposed = AJXP_PluginsService::getInstance()->loadFromPluginQueriesCache("//server_settings/param[contains(@scope,'user') and @expose='true']");
+        if($cacheHasExposed !== null){
+            $hasExposed = $cacheHasExposed;
+        }else{
+            $paramNodes = AJXP_PluginsService::searchAllManifests("//server_settings/param[contains(@scope,'user') and @expose='true']", "node", false, false, true);
+            if(is_array($paramNodes) && count($paramNodes)) {
+                $hasExposed = true;
+            }
+            AJXP_PluginsService::getInstance()->storeToPluginQueriesCache("//server_settings/param[contains(@scope,'user') and @expose='true']", $hasExposed);
+        }
+        //$hasExposed = true;
+
 
         if(!$hasExposed){
             unset($this->actions["custom_data_edit"]);
@@ -226,7 +236,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 	 */
 	function createUserObject($userId){
 		$abstractUser = $this->instantiateAbstractUserImpl($userId);
-		if(!$abstractUser->storageExists()){			
+		if(!$abstractUser->storageExists()){
 			AuthService::updateDefaultRights($abstractUser);
 		}
         AuthService::updateAutoApplyRole($abstractUser);
@@ -243,10 +253,11 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
     abstract function deleteUser($userId, &$deletedSubUsers);
 
 
-        /**
+    /**
 	 * Instantiate the right class
 	 *
-	 * @param AbstractAjxpUser $userId
+	 * @param string $userId
+     * @return AbstractAjxpUser
 	 */
 	abstract function instantiateAbstractUserImpl($userId);
 	
@@ -310,21 +321,6 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 	}
 
     /**
-     * @abstract
-     * @param string $queueName
-     * @param Object $object
-     * @return bool
-     */
-    abstract function storeObjectToQueue($queueName, $object);
-
-    /**
-     * @abstract
-     * @param string $queueName Name of the queue
-     * @return array An array of arbitrary objects, understood by the caller
-     */
-    abstract function consumeQueue($queueName);
-
-    /**
      * @param AbstractAjxpUser $userObject
      * @return array()
      */
@@ -334,6 +330,10 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
         $prefs = array();
         if( $userObject->getId()=="guest" && ConfService::getCoreConf("SAVE_GUEST_PREFERENCES", "conf") === false){
             return array();
+        }
+        if( ConfService::getCoreConf("SKIP_USER_HISTORY", "conf") === true ){
+            $stringPrefs = array_diff($stringPrefs, array("history/last_repository"));
+            $jsonPrefs = array("columns_size", "columns_visibility", "gui_preferences");
         }
         foreach($stringPrefs as $pref){
             if(strstr($pref, "/")!==false){
@@ -525,7 +525,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 
 
 				AJXP_XMLWriter::header();
-				AJXP_XMLWriter::sendMessage("Successfully updated your account", null);
+				AJXP_XMLWriter::sendMessage($mess["241"], null);
                 AJXP_XMLWriter::close();
 
 			break;
@@ -538,6 +538,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 				$userObject = AuthService::getLoggedUser();
 				$webdavActive = false;
 				$passSet = false;
+                $digestSet = false;
 				// Detect http/https and host
 				if(ConfService::getCoreConf("WEBDAV_BASEHOST") != ""){
 					$baseURL = ConfService::getCoreConf("WEBDAV_BASEHOST");
@@ -545,8 +546,9 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 					$baseURL = AJXP_Utils::detectServerURL();
 				}
 				$webdavBaseUrl = $baseURL.ConfService::getCoreConf("WEBDAV_BASEURI")."/";
-				if(isSet($httpVars["activate"]) || isSet($httpVars["webdav_pass"])){
-					$davData = $userObject->getPref("AJXP_WEBDAV_DATA");
+                $davData = $userObject->getPref("AJXP_WEBDAV_DATA");
+                $digestSet = isSet($davData["HA1"]);
+                if(isSet($httpVars["activate"]) || isSet($httpVars["webdav_pass"])){
 					if(!empty($httpVars["activate"])){
 						$activate = ($httpVars["activate"]=="true" ? true:false);
 						if(empty($davData)){
@@ -568,7 +570,6 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 					$userObject->setPref("AJXP_WEBDAV_DATA", $davData);
 					$userObject->save("user");
 				}
-				$davData = $userObject->getPref("AJXP_WEBDAV_DATA");				
 				if(!empty($davData)){
 					$webdavActive = (isSet($davData["ACTIVE"]) && $davData["ACTIVE"]===true); 
 					$passSet = (isSet($davData["PASS"])); 
@@ -586,6 +587,7 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
 				$prefs = array(
 					"webdav_active"  => $webdavActive,
 					"password_set"   => $passSet,
+                    "digest_set"    => $digestSet,
 					"webdav_base_url"  => $webdavBaseUrl, 
 					"webdav_repositories" => $davRepos
 				);
@@ -733,20 +735,27 @@ abstract class AbstractConfDriver extends AJXP_Plugin {
                 $users = "";
                 $index = 0;
                 if($regexp != null && !count($allUsers)){
-                    $users .= "<li class='complete_user_entry_temp' data-temporary='true' data-label='$crtValue'><span class='user_entry_label'>$crtValue (create user)</span></li>";
+                    $users .= "<li class='complete_user_entry_temp' data-temporary='true' data-label='$crtValue'><span class='user_entry_label'>$crtValue (".$mess["448"].")</span></li>";
                 }
+                $mess = ConfService::getMessages();
+                if($regexp == null) $users .= "<li class='complete_group_entry' data-group='/' data-label='".$mess["447"]."'><span class='user_entry_label'>".$mess["447"]."</span></li>";
                 if(count($allGroups)){
-                    if($regexp == null) $users .= "<li class='complete_group_entry' data-group='/' data-label='My Group'><span class='user_entry_label'>My Group</span></li>";
                     foreach($allGroups as $groupId => $groupLabel){
                         if($regexp == null ||  preg_match("/$regexp/i", $groupLabel)){
-                            $users .= "<li class='complete_group_entry' data-group='$groupId' data-label='$groupLabel'><span class='user_entry_label'>".$groupLabel."</span></li>";
+                            $users .= "<li class='complete_group_entry' data-group='$groupId' data-label='$groupLabel' data-entry_id='$groupId'><span class='user_entry_label'>".$groupLabel."</span></li>";
                         }
                     }
                 }
                 foreach ($allUsers as $userId => $userObject){
                     if( ( !$userObject->hasParent() &&  ConfService::getCoreConf("ALLOW_CROSSUSERS_SHARING", "conf")) || $userObject->getParent() == $loggedUser->getId() ){
                         if($regexp != null && !preg_match("/$regexp/i", $userId)) continue;
-                        $users .= "<li class='complete_user_entry' data-label='$userId'><span class='user_entry_label'>".$userId."</span></li>";
+                        $userLabel = $userObject->personalRole->filterParameterValue("core.conf", "USER_DISPLAY_NAME", AJXP_REPO_SCOPE_ALL, $userId);
+                        if(empty($userLabel)) $userLabel = $userId;
+                        $userDisplay = ($userLabel == $userId ? $userId : $userLabel . " ($userId)");
+                        if(ConfService::getCoreConf("USERS_LIST_HIDE_LOGIN", "conf") == true && $userLabel != $userId){
+                            $userDisplay = $userLabel;
+                        }
+                        $users .= "<li class='complete_user_entry' data-label='$userLabel' data-entry_id='$userId'><span class='user_entry_label'>".$userDisplay."</span></li>";
                         $index ++;
                     }
                     if($index == $limit) break;

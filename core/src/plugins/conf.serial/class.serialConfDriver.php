@@ -269,11 +269,11 @@ class serialConfDriver extends AbstractConfDriver {
         $result = array();
         $authDriver = ConfService::getAuthDriverImpl();
         $confDriver = ConfService::getConfStorageImpl();
-        $users = $authDriver->listUsers();
+        $users = $authDriver->listUsers(AuthService::filterBaseGroup("/"));
         foreach (array_keys($users) as $id){
             $object = $confDriver->createUserObject($id);
             if($object->canSwitchTo($repositoryId)){
-                $result[] = $object;
+                $result[$id] = $object;
             }
         }
         return $result;
@@ -305,7 +305,9 @@ class serialConfDriver extends AbstractConfDriver {
         $labels = array();
         asort($groups);
         foreach($groups as $id => $path){
-            if(substr($path, 0, strlen($baseGroup)) == $baseGroup && strlen($path) >  strlen($baseGroup)){
+            $testGroup = $baseGroup;
+            if($baseGroup != "/") $testGroup .= "/";
+            if(substr($path, 0, strlen($testGroup)) == $testGroup && strlen($path) >  strlen($testGroup)){
                 $parts = explode("/", ltrim(substr($path, strlen($baseGroup)), "/"));
                 $sub = "/".array_shift($parts);
                 if(!isset($levelGroups[$sub])) $levelGroups[$sub] = $path;
@@ -437,7 +439,7 @@ class serialConfDriver extends AbstractConfDriver {
     /**
      * @param array $context
      * @param String $ID
-     * @param Stream $outputStream
+     * @param Resource $outputStream
      * @return boolean
      */
     function loadBinary($context, $ID, $outputStream = null)
@@ -445,45 +447,12 @@ class serialConfDriver extends AbstractConfDriver {
         if(is_file($this->getBinaryPathStorage($context)."/".$ID)){
             if($outputStream == null){
                 header("Content-Type: ".AJXP_Utils::getImageMimeType($ID));
+                // PROBLEM AT STARTUP
                 readfile($this->getBinaryPathStorage($context)."/".$ID);
+            }else if(is_resource($outputStream)) {
+                fwrite($outputStream, file_get_contents($this->getBinaryPathStorage($context)."/".$ID));
             }
         }
     }
 
-    /**
-     * @param string $queueName
-     * @param Object $object
-     * @return bool
-     */
-    function storeObjectToQueue($queueName, $object)
-    {
-        $data = array();
-        $fExists = false;
-        if(file_exists($this->getPluginWorkDir()."/queues/$queueName.ser")){
-            $fExists = true;
-            $data = unserialize(file_get_contents($this->getPluginWorkDir()."/queues/$queueName.ser"));
-        }
-        $data[] = $object;
-        if(!$fExists){
-            if(!is_dir($this->getPluginWorkDir()."/queues")){
-                mkdir($this->getPluginWorkDir()."/queues", 0755, true);
-            }
-        }
-        $res = file_put_contents($this->getPluginWorkDir()."/queues/$queueName.ser", serialize($data), LOCK_EX);
-        return $res;
-    }
-
-    /**
-     * @param string $queueName Name of the queue
-     * @return array An array of arbitrary objects, understood by the caller
-     */
-    function consumeQueue($queueName)
-    {
-        $data = array();
-        if(file_exists($this->getPluginWorkDir()."/queues/$queueName.ser")){
-            $data = unserialize(file_get_contents($this->getPluginWorkDir()."/queues/$queueName.ser"));
-            file_put_contents($this->getPluginWorkDir()."/queues/$queueName.ser", array(), LOCK_EX);
-        }
-        return $data;
-    }
 }

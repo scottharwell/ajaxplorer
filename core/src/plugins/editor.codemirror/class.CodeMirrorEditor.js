@@ -227,7 +227,8 @@ Class.create("CodeMirrorEditor", AbstractEditor, {
             fitHeightToBottom($(this.element), $(modal.elementName));
             fitHeightToBottom(this.codeMirror.wrapping);
         }.bind(this));
-	},
+
+    },
 	
 	updateHistoryButtons: function(){
 		var sizes = $H({undo:0,redo:0});
@@ -296,7 +297,8 @@ Class.create("CodeMirrorEditor", AbstractEditor, {
 		connexion.addParameter('get_action', 'put_content');
         connexion.addParameter('file', this.inputNode.getPath());
         connexion.onComplete = function(transp){
-			this.parseXml(transp);			
+			this.parseXml(transp);
+            ajaxplorer.fireNodeRefresh(this.inputNode);
 		}.bind(this);
 		this.setOnLoad(this.contentMainContainer);
 		connexion.setMethod('put');		

@@ -344,15 +344,27 @@ class sqlConfDriver extends AbstractConfDriver {
      */
     function getUsersForRepository($repositoryId){
         $result = array();
+        // OLD METHOD
         $children_results = dibi::query('SELECT [login] FROM [ajxp_user_rights] WHERE [repo_uuid] = %s GROUP BY [login]', $repositoryId);
         $all = $children_results->fetchAll();
         foreach ($all as $item){
-            $result[] = $this->createUserObject($item["login"]);
+            $result[$item["login"]] = $this->createUserObject($item["login"]);
         }
+        // NEW METHOD : SEARCH PERSONAL ROLE
+        $children_results = dibi::query('SELECT [role_id] FROM [ajxp_roles] WHERE [serial_role] LIKE %s GROUP BY [role_id]', '%"'.$repositoryId.'";s:%');
+        $all = $children_results->fetchAll();
+        foreach ($all as $item){
+            $rId = $item["role_id"];
+            if(strpos($rId, "AJXP_USR/") == 0){
+                $id = substr($rId, strlen("AJXP_USR/")+1);
+                $result[$id] = $this->createUserObject($id);
+            }
+        }
+
         return $result;
     }
 
-	// SAVE / EDIT / CREATE / DELETE USER OBJECT (except password)
+    // SAVE / EDIT / CREATE / DELETE USER OBJECT (except password)
 	/**
 	 * Instantiate the right class
 	 *
@@ -460,7 +472,6 @@ class sqlConfDriver extends AbstractConfDriver {
      * @param string $groupPath
      * @param string $groupLabel
      * @return mixed
-     * @todo
      */
     function createGroup($groupPath, $groupLabel){
         dibi::query("INSERT INTO [ajxp_groups]", array("groupPath" => $groupPath, "groupLabel" => $groupLabel));
@@ -478,7 +489,6 @@ class sqlConfDriver extends AbstractConfDriver {
     /**
      * @param string $baseGroup
      * @return string[]
-     * @todo
      */
     function getChildrenGroups($baseGroup = "/"){
         $res = dibi::query("SELECT * FROM [ajxp_groups] WHERE [groupPath] LIKE %s", $baseGroup."%");
@@ -523,6 +533,53 @@ class sqlConfDriver extends AbstractConfDriver {
         }
     }
 
+    protected function simpleStoreSet($storeID, $dataID, $data, $dataType = "serial", $relatedObjectId = null){
+        $values = array(
+            "store_id" => $storeID,
+            "object_id" => $dataID
+        );
+        if($relatedObjectId != null){
+            $values["related_object_id"] = $relatedObjectId;
+        }
+        if($dataType == "serial"){
+            $values["serialized_data"] = serialize($data);
+        }else if($dataType == "binary"){
+            $values["binary_data"] = $data;
+        }else{
+            throw new Exception("Unsupported format type ".$dataType);
+        }
+        dibi::query("DELETE FROM [ajxp_simple_store] WHERE [store_id]=%s AND [object_id]=%s", $storeID, $dataID);
+        dibi::query("INSERT INTO [ajxp_simple_store]", $values);
+    }
+
+    protected function simpleStoreGet($storeID, $dataID, $dataType = "serial", &$data){
+        $children_results = dibi::query("SELECT * FROM [ajxp_simple_store] WHERE [store_id]=%s AND [object_id]=%s", $storeID, $dataID);
+        $value = $children_results->fetchAll();
+        if(!count($value)) return false;
+        $value = $value[0];
+        if($dataType == "serial"){
+            $data = unserialize($value["serialized_data"]);
+        }else{
+            $data = $value["binary_data"];
+        }
+        if(isSet($value["related_object_id"])){
+            return $value["related_object_id"];
+        }else{
+            return false;
+        }
+    }
+
+    protected function binaryContextToStoreID($context){
+        $storage = null;
+        if(isSet($context["USER"])){
+            $storage ="users_binaries.".$context["USER"];
+        }else if(isSet($context["REPO"])){
+            $storage ="repos_binaries.".$context["REPO"];
+        }else if(isSet($context["ROLE"])){
+            $storage ="roles_binaries.".$context["REPO"];
+        }
+        return $storage;
+    }
     /**
      * @param array $context
      * @param String $fileName
@@ -531,37 +588,32 @@ class sqlConfDriver extends AbstractConfDriver {
      */
     function saveBinary($context, $fileName, $ID = null)
     {
-        // TODO: Implement saveBinary() method.
+        if(empty($ID)){
+            $ID = substr(md5(microtime()*rand(0,100)), 0, 12);
+            $ID .= ".".pathinfo($fileName, PATHINFO_EXTENSION);
+        }
+        $store = $this->binaryContextToStoreID($context);
+        $this->simpleStoreSet($store, $ID, file_get_contents($fileName), "binary");
+        return $ID;
     }
 
     /**
      * @param array $context
      * @param String $ID
-     * @param Stream $outputStream
+     * @param Resource $outputStream
      * @return boolean
      */
     function loadBinary($context, $ID, $outputStream = null)
     {
-        // TODO: Implement loadBinary() method.
+        $store = $this->binaryContextToStoreID($context);
+        $data = "";
+        $this->simpleStoreGet($store, $ID, "binary", $data);
+        if($outputStream != null ){
+            fwrite($outputStream, $data, strlen($data));
+        } else{
+            header("Content-Type: ".AJXP_Utils::getImageMimeType($ID));
+            echo $data;
+        }
     }
 
-    /**
-     * @param string $queueName
-     * @param Object $object
-     * @return bool
-     */
-    function storeObjectToQueue($queueName, $object)
-    {
-        // TODO: Implement storeObjectToQueue() method.
-    }
-
-    /**
-     * @param string $queueName Name of the queue
-     * @return array An array of arbitrary objects, understood by the caller
-     */
-    function consumeQueue($queueName)
-    {
-        // TODO: Implement consumeQueue() method.
-    }
 }
-?>

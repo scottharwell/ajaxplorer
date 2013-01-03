@@ -210,7 +210,7 @@ WebFXTreeAbstractNode.prototype.add = function (node, bNoIdent) {
 		$(this.id + '-cont').insert(node.toString());
 		$(node.id).ajxpNode = node.ajxpNode;
 		if(!node.inZip){
-			AjxpDroppables.add(node.id);
+			AjxpDroppables.add(node.id, node.ajxpNode);
 		}		
 		//new Draggable(node.id, {revert:true,ghosting:true,constraint:'vertical'});
 		if(webFXTreeHandler.contextMenu){
@@ -249,7 +249,7 @@ WebFXTreeAbstractNode.prototype.add = function (node, bNoIdent) {
         if(Prototype.Browser.IE || Prototype.Browser.Opera){
             window.setTimeout(function(){
                 var sum = 0;
-                $(node.id).childElements().each(function(el){sum += el.getWidth();});
+                if($(node.id)) $(node.id).childElements().each(function(el){sum += el.getWidth();});
                 if(sum) $(node.id).setStyle({width:Math.max(sum+50,$(node.id).parentNode.getWidth())+'px'});
             }, 100);
         }

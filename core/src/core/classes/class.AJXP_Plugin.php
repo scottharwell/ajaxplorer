@@ -125,20 +125,18 @@ class AJXP_Plugin implements Serializable{
 	}
 
     protected function getFilteredOption($optionName, $repositoryScope = AJXP_REPO_SCOPE_ALL){
-        if(isSet($this->options[$optionName])){
-            if(AuthService::getLoggedUser() != null){
-                return AuthService::getLoggedUser()->mergedRole->filterParameterValue(
-                    $this->getId(),
-                    $optionName,
-                    $repositoryScope,
-                    $this->options[$optionName]
-                );
-            }
-            return $this->options[$optionName];
+        if(AuthService::getLoggedUser() != null){
+            return AuthService::getLoggedUser()->mergedRole->filterParameterValue(
+                $this->getId(),
+                $optionName,
+                $repositoryScope,
+                isSet($this->options[$optionName]) ? $this->options[$optionName] : null
+            );
+        }else{
+            return isSet($this->options[$optionName]) ? $this->options[$optionName] : null;
         }
-        return null;
     }
-	/**
+    /**
 	 * Perform initialization checks, and throw exception if problems found.
 	 * @throws Exception
 	 */
@@ -302,6 +300,11 @@ class AJXP_Plugin implements Serializable{
 			$actionXpath=new DOMXPath($contribNode->ownerDocument);
 			foreach($contribNode->childNodes as $actionNode){
 				if($actionNode->nodeType!=XML_ELEMENT_NODE) continue;
+                $names = $actionXpath->query("@name", $actionNode);
+            	$name = $names->item(0)->value;
+                $this->actions[$name] = $name;
+                continue;
+                /*
 				$actionData=array();
 				$actionData["XML"] = $contribNode->ownerDocument->saveXML($actionNode);			
 				$names = $actionXpath->query("@name", $actionNode);
@@ -315,9 +318,8 @@ class AJXP_Plugin implements Serializable{
 					$actionData["rights"] = $this->nodeAttrToHash($rightContext);
 				}
 				$actionData["node"] = $actionNode;
-				$names = $actionXpath->query("@name", $actionNode);
-				$name = $names->item(0)->value;
 				$this->actions[$name] = $actionData;
+                */
 			}
 		}
 	}

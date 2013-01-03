@@ -1,4 +1,4 @@
-.even
+table.sort-table tr:nth-child(even)
 {
     background-color: #f9f9f9;
 }
@@ -186,6 +186,13 @@ textarea{
    background-color: #f9f9f9;
    -moz-border-radius : 5px;
    border-radius : 5px;
+}
+
+.thumbnail_iconlike_shadow{
+    border: 1px solid white;
+    -webkit-box-shadow: 0 0 5px #666666;
+    -moz-box-shadow: 0 0 5px #666666;
+    box-shadow: 0 0 5px #666666;
 }
 
 .selectable_div div.selected{
@@ -474,6 +481,7 @@ textarea#myCode
     position: relative;
     top: -2px;
     margin-right: 5px;
+    margin-top: 3px;
 }
 
 .dialogArrow
@@ -1269,7 +1277,6 @@ img.simple_button_arrow{
 {
     font-style: normal;
     cursor: pointer;
-	margin-left:3px;
 	margin-right:7px;
 	margin-top:-4px;
 }
@@ -1288,11 +1295,21 @@ img.simple_button_arrow{
 
 .user_widget_label.withImage{
     position: relative;
-    padding-left: 23px;
+    padding:0;
+}
+
+.user_widget_label.withImage i{
+    font-weight: bold;
+    line-height: 22px;
+    display: inline-block;
+    padding: 0 4px 0 8px;
+}
+
+.user_widget_label.withImage i img{
 }
 
 img.user_widget_mini{
-    position: absolute;
+    vertical-align: middle;
     height: 16px;
     border: 1px solid white;
     top: 5px;
@@ -2808,6 +2825,8 @@ div.autocomplete
       padding:0px;
       box-shadow: 2px 2px 3px #cccccc;
       border-radius: 0 0 2px 2px;
+    max-height: 200px;
+    overflow-y: auto;
 }
 div.autocomplete ul
 {
@@ -3313,4 +3332,9 @@ td.ip_geo_cell{
 }
 .tabrow li.selected:after {
     box-shadow: -2px 2px 0 #FFF;
+}
+
+#sm2-container{
+    position: absolute;
+    top: -1000px;
 }

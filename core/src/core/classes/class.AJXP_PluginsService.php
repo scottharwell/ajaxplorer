@@ -105,8 +105,11 @@ defined('AJXP_EXEC') or die( 'Access not allowed');
  			}
  		}
  		if(!defined("AJXP_SKIP_CACHE") || AJXP_SKIP_CACHE === false){
-	 		AJXP_Utils::saveSerialFile(AJXP_PLUGINS_REQUIRES_FILE, $this->required_files, false, false);
-	 		AJXP_Utils::saveSerialFile(AJXP_PLUGINS_CACHE_FILE, $this->registry, false, false);
+            AJXP_Utils::saveSerialFile(AJXP_PLUGINS_REQUIRES_FILE, $this->required_files, false, false);
+            AJXP_Utils::saveSerialFile(AJXP_PLUGINS_CACHE_FILE, $this->registry, false, false);
+            if(is_file(AJXP_PLUGINS_QUERIES_CACHE)){
+                @unlink(AJXP_PLUGINS_QUERIES_CACHE);
+            }
  		}
  	}
  	
@@ -185,7 +188,24 @@ defined('AJXP_EXEC') or die( 'Access not allowed');
  		} 		
  		return $sorted;
  	}
- 	
+
+     public function loadFromPluginQueriesCache($key){
+         if(AJXP_SKIP_CACHE) return null;
+         $test = AJXP_Utils::loadSerialFile(AJXP_PLUGINS_QUERIES_CACHE);
+         if(!empty($test) && is_array($test) && isset($test[$key])){
+             return $test[$key];
+         }
+         return null;
+     }
+
+     public function storeToPluginQueriesCache($key, $value){
+         if(AJXP_SKIP_CACHE) return;
+         $test = AJXP_Utils::loadSerialFile(AJXP_PLUGINS_QUERIES_CACHE);
+         if(!is_array($test)) $test = array();
+         $test[$key] = $value;
+         AJXP_Utils::saveSerialFile(AJXP_PLUGINS_QUERIES_CACHE, $test);
+     }
+
  	/**
       * Simply load a plugin class, without the whole dependencies et.all
       * @param string $pluginId
@@ -243,36 +263,77 @@ defined('AJXP_EXEC') or die( 'Access not allowed');
  			}
  		}
  	}
- 	/**
- 	 * User function for sorting
- 	 *
- 	 * @param AJXP_Plugin $pluginA
- 	 * @param AJXP_Plugin $pluginB
-      * @return integer
- 	 */
- 	private function sortByDependency($pluginA, $pluginB){
- 		//var_dump("Checking " . $pluginA->getId() . " vs " . $pluginB->getId());
- 		if($pluginA->getId() == $pluginB->getId()){
- 			//var_dump("should not check");
- 			return 0;
- 		}
- 		if($pluginA->dependsOn($pluginB->getId())) {
- 			return 1;
- 		}
- 		if($pluginB->dependsOn($pluginA->getId())) {
- 			return -1;
- 		}
- 		return 0;
- 	}
 
      /**
-      * @param $tableau
-      * @return
+      * User function for sorting
+      *
+      * @param $pluginIdA
+      * @param $pluginIdB
+      * @internal param String $pluginA
+      * @internal param String $pluginB
+      * @return integer
       */
-	private function usort(&$tableau){
-		uasort($tableau, array($this, "sortByDependency"));
-		return ;
-    }
+     public static function sortByDependencyIds($pluginIdA, $pluginIdB){
+         if($pluginIdA == $pluginIdB) return 0;
+         $pluginA = self::findPluginById($pluginIdA);
+         $pluginB = self::findPluginById($pluginIdB);
+         if($pluginA == null || $pluginB == null) return 0;
+         if($pluginA->dependsOn($pluginIdB)) {
+             return 1;
+         }
+         if($pluginB->dependsOn($pluginIdA)) {
+             return -1;
+         }
+         return 0;
+     }
+
+     public function getOrderByDependency($plugins, $withStatus = true){
+         $orders = array();
+         $keys = array();
+         $unkowns = array();
+         if($withStatus){
+             foreach($plugins as $pid => $status){
+                 if($status) $keys[] = $pid;
+             }
+         }else{
+             $keys = array_keys($plugins);
+         }
+         $result = array();
+         while(count($keys) > 0){
+             $test = array_shift($keys);
+             $testObject = $this->getPluginById($test);
+             $deps = $testObject->getActiveDependencies(self::getInstance());
+             if(!count($deps)){
+                 $result[] = $test;
+                 continue;
+             }
+             $found = false;
+             $inOriginalPlugins = false;
+             foreach($deps as $depId){
+                 if(in_array($depId, $result)) {
+                     $found = true;
+                     break;
+                 }
+                 if(!$inOriginalPlugins && array_key_exists($depId, $plugins) && (!$withStatus || $plugins[$depId] == true)){
+                     $inOriginalPlugins = true;
+                 }
+             }
+             if($found){
+                 $result[] = $test;
+             }else{
+                 if($inOriginalPlugins) $keys[] = $test;
+                 else {
+                     unset($plugins[$test]);
+                     $unkowns[] = $test;
+                 }
+             }
+         }
+         return array_merge($result, $unkowns);
+     }
+
+
+
+
 	/**
      * All the plugins of a given type
      * @param string $type

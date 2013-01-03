@@ -246,12 +246,18 @@ class AJXP_Utils
     {
         $output["EXT_REP"] = "/";
 
-        if (isSet($parameters["repository_id"]) && isSet($parameters["folder"])) {
-            $repository = ConfService::getRepositoryById($parameters["repository_id"]);
+        if (isSet($parameters["repository_id"]) && isSet($parameters["folder"]) || isSet($parameters["goto"])) {
+            if(isSet($parameters["goto"])){
+                $repoId = array_shift(explode("/", ltrim($parameters["goto"], "/")));
+                $parameters["folder"] = str_replace($repoId, "", ltrim($parameters["goto"], "/"));
+            }else{
+                $repoId = $parameters["repository_id"];
+            }
+            $repository = ConfService::getRepositoryById($repoId);
             if ($repository == null) {
-                $repository = ConfService::getRepositoryByAlias($parameters["repository_id"]);
+                $repository = ConfService::getRepositoryByAlias($repoId);
                 if ($repository != null) {
-                    $parameters["repository_id"] = $repository->getId();
+                    $parameters["repository_id"] = ($repository->isWriteable()?$repository->getUniqueId():$repository->getId());
                 }
             }
             require_once(AJXP_BIN_FOLDER . "/class.SystemTextEncoding.php");
@@ -607,7 +613,7 @@ class AJXP_Utils
     static function xmlEntities($string, $toUtf8 = false)
     {
         $xmlSafe = str_replace(array("&", "<", ">", "\"", "\n", "\r"), array("&amp;", "&lt;", "&gt;", "&quot;", "&#13;", "&#10;"), $string);
-        if ($toUtf8) {
+        if ($toUtf8 && SystemTextEncoding::getEncoding() != "UTF-8") {
             return SystemTextEncoding::toUTF8($xmlSafe);
         } else {
             return $xmlSafe;
@@ -1025,9 +1031,11 @@ class AJXP_Utils
      * Stores an Array as a serialized string inside a file.
      *
      * @param String $filePath Full path to the file
-     * @param Array $value The value to store
+     * @param Array|Object $value The value to store
      * @param Boolean $createDir Whether to create the parent folder or not, if it does not exist.
      * @param bool $silent Silently write the file, are throw an exception on problem.
+     * @param string $format
+     * @throws Exception
      */
     static function saveSerialFile($filePath, $value, $createDir = true, $silent = false, $format="ser")
     {
@@ -1170,12 +1178,13 @@ class AJXP_Utils
     {
         @unlink($file);
     }
+
     /**
      * Try to set an ini config, without errors
      * @static
      * @param string $paramName
      * @param string $paramValue
-     * @return
+     * @return void
      */
     public static function safeIniSet($paramName, $paramValue)
     {
@@ -1184,15 +1193,40 @@ class AJXP_Utils
         @ini_set($paramName, $paramValue);
     }
 
+    /**
+     * @static
+     * @param string $url
+     * @return bool|mixed|string
+     */
+    public static function getRemoteContent($url){
+        if(ini_get("allow_url_fopen")){
+            return file_get_contents($url);
+        }else if(function_exists("curl_init")){
+            $ch = curl_init();
+            $timeout = 30; // set to zero for no timeout
+            curl_setopt ($ch, CURLOPT_URL, $url);
+            curl_setopt ($ch, CURLOPT_RETURNTRANSFER, 1);
+            curl_setopt ($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
+            $return = curl_exec($ch);
+            curl_close($ch);
+            return $return;
+        }else{
+            $i = parse_url($url);
+            $httpClient = new HttpClient($i["host"]);
+            $httpClient->timeout = 30;
+            return $httpClient->quickGet($url);
+        }
+    }
+
     public static function parseStandardFormParameters(&$repDef, &$options, $userId = null, $prefix = "DRIVER_OPTION_", $binariesContext = null){
 
         if($binariesContext == null){
-            $binariesContext = array("USER" => AuthService::getLoggedUser()->getId());
+            $binariesContext = array("USER" => (AuthService::getLoggedUser()!= null)?AuthService::getLoggedUser()->getId():"shared");
         }
         $replicationGroups = array();
         foreach ($repDef as $key => $value)
         {
-            $value = AJXP_Utils::sanitize(SystemTextEncoding::magicDequote($value));
+            $value = SystemTextEncoding::magicDequote($value);
             if( ( ( !empty($prefix) &&  strpos($key, $prefix)!== false && strpos($key, $prefix)==0 ) || empty($prefix) )
                 && strpos($key, "ajxptype") === false
                 && strpos($key, "_original_binary") === false
@@ -1226,6 +1260,9 @@ class AJXP_Utils
                             $value = $repDef[$key."_original_binary"];
                         }
                     }
+                    if($repDef[$key."_ajxptype"] != "textarea"){
+                        $value = AJXP_Utils::sanitize($value, AJXP_SANITIZE_HTML);
+                    }
                     unset($repDef[$key."_ajxptype"]);
                 }
                 if(isSet($repDef[$key."_checkbox"])){
@@ -1254,5 +1291,3 @@ class AJXP_Utils
     }
 
 }
-
-?>

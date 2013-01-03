@@ -120,11 +120,15 @@ abstract class AbstractAjxpUser
 	function setVersion($v){
 		$this->version = $v;
 	}
-	
-	function addRole($roleId){
+
+    /**
+     * @param AJXP_Role $roleObject
+     */
+    function addRole($roleObject){
 		if(!isSet($this->rights["ajxp.roles"])) $this->rights["ajxp.roles"] = array();
-		$this->rights["ajxp.roles"][$roleId] = true;
+		$this->rights["ajxp.roles"][$roleObject->getId()] = true;
         uksort($this->rights["ajxp.roles"], array($this, "orderRoles"));
+        $this->roles[$roleObject->getId()] = $roleObject;
         $this->recomputeMergedRole();
 	}
 	
@@ -132,6 +136,7 @@ abstract class AbstractAjxpUser
 		if(isSet($this->rights["ajxp.roles"]) && isSet($this->rights["ajxp.roles"][$roleId])){
 			unset($this->rights["ajxp.roles"][$roleId]);
             uksort($this->rights["ajxp.roles"], array($this, "orderRoles"));
+            if(isSet($this->roles[$roleId])) unset($this->roles[$roleId]);
         }
         $this->recomputeMergedRole();
 	}
@@ -212,10 +217,13 @@ abstract class AbstractAjxpUser
 	 */
 	function canSwitchTo($repositoryId){
 		$repositoryObject = ConfService::getRepositoryById($repositoryId);
-		if($repositoryObject == null) return false;
+        if($repositoryObject == null) return false;
+        return ConfService::repositoryIsAccessible($repositoryId, $repositoryObject, $this, false, false);
+        /*
 		if($repositoryObject->getAccessType() == "ajxp_conf" && !$this->isAdmin()) return false;
         if($repositoryObject->getUniqueUser() && $this->id != $repositoryObject->getUniqueUser()) return false;
 		return ($this->mergedRole->canRead($repositoryId) || $this->mergedRole->canWrite($repositoryId)) ;
+        */
 	}
 	
 	function getRight($rootDirId){
@@ -223,6 +231,13 @@ abstract class AbstractAjxpUser
 	}
 
 	function getPref($prefName){
+        if($prefName == "lang"){
+            // Migration path
+            if(isSet($this->mergedRole)){
+                $l = $this->mergedRole->filterParameterValue("core.conf", "lang", AJXP_REPO_SCOPE_ALL, "");
+                if($l != "") return $l;
+            }
+        }
 		if(isSet($this->prefs[$prefName])) return $this->prefs[$prefName];
 		return "";
 	}
@@ -313,7 +328,7 @@ abstract class AbstractAjxpUser
              // The initialisation vector is only required to avoid a warning, as ECB ignore IV
              $iv = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_RAND);
              // We have encoded as base64 so if we need to store the result in a database, it can be stored in text column
-             $password = trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, md5($this->getId()."\1CDAFx¨op#"), base64_decode($password), MCRYPT_MODE_ECB, $iv));
+             $password = trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, md5($this->getId()."\1CDAFx¨op#"), base64_decode($password), MCRYPT_MODE_ECB, $iv), "\0");
         }
         return $password;
     }
@@ -345,6 +360,12 @@ abstract class AbstractAjxpUser
                 if($index < count($this->roles) -1 ) $this->parentRole = $role->override($this->parentRole);
             }
             $index ++;
+        }
+        if($this->hasParent() && isSet($this->parentRole)){
+            // It's a shared user, we don't want it to inherit the rights
+            $this->parentRole->clearAcls();
+            $this->mergedRole = $this->parentRole->override($this->personalRole);
+            //$this->mergedRole
         }
     }
 

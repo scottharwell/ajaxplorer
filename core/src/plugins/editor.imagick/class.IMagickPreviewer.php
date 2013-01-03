@@ -97,7 +97,10 @@ class IMagickPreviewer extends AJXP_Plugin {
 				header("Content-Type: image/jpeg; name=\"".basename($file)."\"");
 				header("Content-Length: ".strlen($cacheData));
 				header('Cache-Control: public');
-				print($cacheData);
+                header("Pragma:");
+                header("Last-Modified: " . gmdate("D, d M Y H:i:s", time()-10000) . " GMT");
+                header("Expires: " . gmdate("D, d M Y H:i:s", time()+5*24*3600) . " GMT");
+                print($cacheData);
 				return;
 			}			
 			
@@ -200,13 +203,14 @@ class IMagickPreviewer extends AJXP_Plugin {
 			$unoconv = $this->pluginConf["UNOCONV"];
 			$officeExt = array('xls', 'xlsx', 'ods', 'doc', 'docx', 'odt', 'ppt', 'pptx', 'odp', 'rtf');
 		}
-		$repository = ConfService::getRepository();
-		$streamData = $repository->streamData;
-        $masterFile = call_user_func(array($streamData["classname"], "getRealFSReference"), $masterFile);
+
+        $extension = pathinfo($masterFile, PATHINFO_EXTENSION);
+        $node = new AJXP_Node($masterFile);
+        $masterFile = $node->getRealFile();
+
         if(DIRECTORY_SEPARATOR == "\\"){
             $masterFile = str_replace("/", "\\", $masterFile);
         }
-		$extension = pathinfo($masterFile, PATHINFO_EXTENSION);
         $wrappers = stream_get_wrappers();
         $wrappers_re = '(' . join('|', $wrappers) . ')';
         $isStream = (preg_match( "!^$wrappers_re://!", $targetFile ) === 1);

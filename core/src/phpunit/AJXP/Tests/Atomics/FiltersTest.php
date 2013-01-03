@@ -18,18 +18,28 @@
  *
  * The latest code can be found at <http://www.ajaxplorer.info/>.
  */
+namespace AJXP\Tests\Atomics;
 
-include("../base.conf.php");
-
-class AjxpBaseTest extends PHPUnit_Framework_TestCase
+class FiltersTest extends \PHPUnit_Framework_TestCase
 {
-    public function testPHPUnitIsWorking()
+    public function testAjxpXMLFilter()
     {
-        $this->assertTrue(true);
+        $this->markTestIncomplete('not impl');
     }
 
-    public function testFrameworkLoads(){
-        $this->assertEquals(AJXP_Utils::convertBytes("2M"), 2097152);
+    public function testAjxpVarsFilter()
+    {
+        $this->markTestIncomplete('not impl');
+    }
+
+    public function testAjxpXMLWriter()
+    {
+        $this->markTestIncomplete('not impl');
+    }
+
+    public function testAjxpHTMLWriter()
+    {
+        $this->markTestIncomplete('not impl');
     }
 
 }

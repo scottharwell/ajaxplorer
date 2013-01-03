@@ -47,7 +47,7 @@ SelectableElements = Class.create({
         this.hasFocus = false;
     },
 
-	initSelectableItems: function(oElement, bMultiple, dragSelectionElement) {
+	initSelectableItems: function(oElement, bMultiple, dragSelectionElement, addTouch) {
 	
 		this._htmlElement = oElement;
 		this._multiple = Boolean(bMultiple);
@@ -71,14 +71,17 @@ SelectableElements = Class.create({
 			if (e == null) e = oElement.ownerDocument.parentWindow.event;
 			this.dblClick(e);
 		}.bind(this);
-	
+
 		if (oElement.addEventListener){
 			oElement.addEventListener("click", this._onclick, false);
 		}else if (oElement.attachEvent){
 			oElement.attachEvent("onclick", this._onclick);
 			oElement.attachEvent("ondblclick", this._ondblclick);
 		}
-		
+        if(addTouch){
+            oElement.observe("touchend", this._onclick);
+        }
+
 		this.eventMouseUp = this.dragEnd.bindAsEventListener(this);
 		this.eventMouseDown = this.dragStart.bindAsEventListener(this);
 		this.eventMouseMove = this.drag.bindAsEventListener(this);

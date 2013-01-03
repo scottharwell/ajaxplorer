@@ -273,7 +273,7 @@ Class.create("ActionsManager", {
 	 */
 	applyDragMove: function(fileName, destDir, destNodeName, copy)
 	{
-		if((!copy && !this.defaultActions.get('dragndrop')) || 
+		if((!copy && (!this.defaultActions.get('dragndrop') || this.getDefaultAction('dragndrop').deny)) ||
 			(copy && (!this.defaultActions.get('ctrldragndrop')||this.getDefaultAction('ctrldragndrop').deny))){
 			return;
 		}
@@ -429,6 +429,63 @@ Class.create("ActionsManager", {
 					ajaxplorer.reloadRepositoriesList();
 				}
 			}
+            else if(childs[i].nodeName == 'nodes_diff'){
+                var dm = ajaxplorer.getContextHolder();
+                var removes = XPathSelectNodes(childs[i], "remove/tree");
+                var adds = XPathSelectNodes(childs[i], "add/tree");
+                var updates = XPathSelectNodes(childs[i], "update/tree");
+                if(removes && removes.length){
+                    removes.each(function(r){
+                        var p = r.getAttribute("filename");
+                        var fake = new AjxpNode(p);
+                        var n = fake.findInArbo(dm.getRootNode(), undefined);
+                        if(n){
+                            n.getParent().removeChild(n);
+                        }
+                    });
+                }
+                if(adds && adds.length && dm.getAjxpNodeProvider().parseAjxpNode){
+                    adds.each(function(tree){
+                        var newNode = dm.getAjxpNodeProvider().parseAjxpNode(tree);
+                        var parentFake = new AjxpNode(getRepName(newNode.getPath()));
+                        var parent = parentFake.findInArbo(dm.getRootNode(), undefined);
+                        if(!parent && getRepName(newNode.getPath()) == "") parent = dm.getRootNode();
+                        if(parent){
+                            parent.addChild(newNode);
+                            dm.setSelectedNodes([newNode], {});
+                        }
+                    });
+                }
+                if(updates && updates.length && dm.getAjxpNodeProvider().parseAjxpNode){
+                    updates.each(function(tree){
+                        var newNode = dm.getAjxpNodeProvider().parseAjxpNode(tree);
+                        var original = newNode.getMetadata().get("original_path");
+                        if(original && original != newNode.getPath()
+                            && getRepName(original) != getRepName(newNode.getPath())){
+                            // Node was really moved to another folder
+                            var fake = new AjxpNode(original);
+                            var n = fake.findInArbo(dm.getRootNode(), undefined);
+                            if(n){
+                                n.getParent().removeChild(n);
+                            }
+                            var parentFake = new AjxpNode(getRepName(newNode.getPath()));
+                            var parent = parentFake.findInArbo(dm.getRootNode(), undefined);
+                            if(!parent && getRepName(newNode.getPath()) == "") parent = dm.getRootNode();
+                            if(parent){
+                                newNode.getMetadata().set("original_path", undefined);
+                                parent.addChild(newNode);
+                            }
+                        }else{
+                            var fake = new AjxpNode(original);
+                            var n = fake.findInArbo(dm.getRootNode(), undefined);
+                            if(n){
+                                n.replaceBy(newNode, "override");
+                                dm.setSelectedNodes([n], {});
+                            }
+                        }
+                    });
+                }
+            }
 			else if(childs[i].tagName == "logging_result")
 			{
 				if(childs[i].getAttribute("secure_token")){
@@ -524,25 +581,14 @@ Class.create("ActionsManager", {
 	 * by triggering ajaxplorer:actions_refreshed event.
 	 */
 	fireContextChange: function(){
-		var crtRecycle = false;
-		var crtInZip = false;
-		var crtIsRoot = false;
-		var crtMime;
-		
+		var crtNode;
 		if(ajaxplorer && ajaxplorer.getContextNode()){ 
 			var crtNode = ajaxplorer.getContextNode();
-			crtRecycle = (crtNode.getAjxpMime() == "ajxp_recycle");
-			crtInZip = crtNode.hasAjxpMimeInBranch("ajxp_browsable_archive");
-			crtIsRoot = crtNode.isRoot();
-			crtMime = crtNode.getAjxpMime();			
-		}	
+		}
 		this.actions.each(function(pair){			
 			pair.value.fireContextChange(this.usersEnabled, 
 									 this.oUser, 									 
-									 crtRecycle, 
-									 crtInZip, 
-									 crtIsRoot,
-									 crtMime);
+									 crtNode);
 		}.bind(this));
 		document.fire("ajaxplorer:actions_refreshed");
 	},

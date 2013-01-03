@@ -30,6 +30,11 @@ class QuotaComputer extends AJXP_Plugin
     protected $currentQuota;
     protected $computeLocal = true;
     static $loadedQuota;
+    static $loadedSoftLimit;
+    /**
+     * @var AjxpMailer
+     */
+    protected $mailer;
 
     public function initMeta($accessDriver){
         $this->accessDriver = $accessDriver;
@@ -37,7 +42,23 @@ class QuotaComputer extends AJXP_Plugin
 
     protected function getWorkingPath(){
         $repo = ConfService::getRepository();
+        // SPECIAL : QUOTA MUST BE COMPUTED ON PARENT REPOSITORY FOLDER
+        if($repo->hasParent()){
+            $parentOwner = $repo->getOwner();
+            $repo = ConfService::getRepositoryById($repo->getParentId());
+            $originalUser = AuthService::getLoggedUser();
+            $loggedUser = AuthService::getLoggedUser();
+            if(!$loggedUser->hasParent()){
+                $loggedUser->setParent($parentOwner);
+            }
+            $loggedUser->setResolveAsParent(true);
+            AuthService::updateUser($loggedUser);
+        }
         $path = $repo->getOption("PATH");
+        if(iSset($originalUser)){
+            AuthService::updateUser($originalUser);
+        }
+
         return $path;
     }
 
@@ -54,6 +75,7 @@ class QuotaComputer extends AJXP_Plugin
         }
         $delta = $newSize;
         $quota = $this->getAuthorized();
+        $soft = $this->getSoftLimit();
         $path = $this->getWorkingPath();
         $q = $this->getUsage($path);
         AJXP_Logger::debug("QUOTA : Previous usage was $q");
@@ -63,6 +85,21 @@ class QuotaComputer extends AJXP_Plugin
         if($q + $delta >= $quota){
             $mess = ConfService::getMessages();
             throw new Exception($mess["meta.quota.3"]." (".AJXP_Utils::roundSize($quota) .")!");
+        }else if( $soft !== false && ($q + $delta) >= $soft && $q <= $soft){
+            $this->sendSoftLimitAlert();
+        }
+    }
+
+    protected function sendSoftLimitAlert(){
+        $mailers = AJXP_PluginsService::getInstance()->getPluginsByType("mailer");
+        if(count($mailers)){
+            $this->mailer = array_shift($mailers);
+            $percent = $this->getFilteredOption("SOFT_QUOTA");
+            $quota = $this->getFilteredOption("DEFAULT_QUOTA");
+            $this->mailer->sendMail(
+                array(AuthService::getLoggedUser()->getId()),
+                "You are close to exceed your quota!",
+                "You are currently using more than $percent% of your authorized quota of $quota!");
         }
     }
 
@@ -74,14 +111,14 @@ class QuotaComputer extends AJXP_Plugin
     }
 
     public function recomputeQuotaUsage($oldNode = null, $newNode = null, $copy = false){
-        $mtime = microtime(true);
         $path = $this->getWorkingPath();
         $q = $this->computeDirSpace($path);
         $this->storeUsage($path, $q);
-        AJXP_Logger::debug("QUOTA : New usage is $q - it took ".(microtime(true) - $mtime)."ms");
+        $t = $this->getAuthorized();
+        AJXP_Controller::applyHook("msg.instant", array("<metaquota usage='{$q}' total='{$t}'/>", ConfService::getRepository()->getUniqueId()));
     }
 
-    private function storeUsage($dir, $quota){
+    protected function storeUsage($dir, $quota){
         $data = $this->getUserData();
         $repo = ConfService::getRepository()->getId();
         if(!isset($data["REPO_USAGES"])) $data["REPO_USAGES"] = array();
@@ -89,11 +126,22 @@ class QuotaComputer extends AJXP_Plugin
         $this->saveUserData($data);
     }
 
-    private function getAuthorized(){
+    protected function getAuthorized(){
         if(self::$loadedQuota != null) return self::$loadedQuota;
         $q = $this->getFilteredOption("DEFAULT_QUOTA");
         self::$loadedQuota = AJXP_Utils::convertBytes($q);
         return self::$loadedQuota;
+    }
+
+    protected function getSoftLimit(){
+        if(self::$loadedSoftLimit != null) return self::$loadedSoftLimit;
+        $l = $this->getFilteredOption("SOFT_QUOTA");
+        if(!empty($l)){
+            self::$loadedSoftLimit = round($this->getAuthorized()*intval($l)/100);
+        }else{
+            self::$loadedSoftLimit = false;
+        }
+        return self::$loadedSoftLimit;
     }
 
     /**
@@ -103,7 +151,7 @@ class QuotaComputer extends AJXP_Plugin
     private function getUsage($dir){
         $data = $this->getUserData();
         $repo = ConfService::getRepository()->getId();
-        if(!isSet($data["REPO_USAGES"][$repo])) {
+        if(!isSet($data["REPO_USAGES"][$repo]) || $this->options["CACHE_QUOTA"] === false) {
             $quota = $this->computeDirSpace($dir);
             if(!isset($data["REPO_USAGES"])) $data["REPO_USAGES"] = array();
             $data["REPO_USAGES"][$repo] = $quota;
