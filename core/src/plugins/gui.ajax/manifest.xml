@@ -6,7 +6,7 @@
         </resources>
     </client_settings>
 	<server_settings>
-        <global_param name="GUI_THEME" group="CONF_MESSAGE[Main Options]" type="select" choices="umbra|Umbra (HTML5),oxygen|Oxygen (Legacy)" label="CONF_MESSAGE[Theme]" description="CONF_MESSAGE[Theme used for display]" mandatory="true" default="umbra"/>
+        <global_param name="GUI_THEME" group="CONF_MESSAGE[Main Options]" type="select" choices="vision|Vision,umbra|Umbra,oxygen|Oxygen (Legacy)" label="CONF_MESSAGE[Theme]" description="CONF_MESSAGE[Theme used for display]" mandatory="true" default="umbra"/>
 		<global_param name="CUSTOM_FONT_SIZE" group="CONF_MESSAGE[Start Up Screen]" type="string" label="CONF_MESSAGE[Title Font Size]" description="CONF_MESSAGE[Font sized used for the title in the start up screen]" mandatory="false" default=""/>
 		<global_param name="CUSTOM_ICON" group="CONF_MESSAGE[Start Up Screen]" type="string" label="CONF_MESSAGE[Custom Icon]" description="CONF_MESSAGE[URI to a custom image to be used as start up logo]" mandatory="false" default="plugins/gui.ajax/AjxpLogo250.png"/>
 		<global_param name="CUSTOM_ICON_WIDTH" group="CONF_MESSAGE[Start Up Screen]" type="string" label="CONF_MESSAGE[Icon Width]" description="CONF_MESSAGE[Width of the custom image (by default 35px)]" mandatory="false" default="250px"/>
@@ -92,7 +92,41 @@
 					</div>
 				</div>
 			]]></template>
-			<template name="widget" element="ajxp_widget" position="top"><![CDATA[
+            <template name="main_vision" element="ajxp_desktop" position="top" theme="vision"><![CDATA[
+				<div id="toolbars">
+					<div id="global_toolbar">
+					    <div id="logging_string" ajxpClass="UserWidget" ajxpOptions='{"menuEvent" : "over"}'></div>
+						<div id="top_toolbar" ajxpClass="ActionsToolbar" ajxpOptions='{"submenuClassName":"panelHeaderMenu","submenuPosition":"bottom right","submenuOffsetTop":12,"toolbarsList":["user"],"skipBubbling":true, "skipCarousel":true,"submenuOffsetTop":2}'></div>
+						<div id="repo_chooser" ajxpClass="RepositorySelect" ajxpOptions='{"menuPosition": "bottom middle", "menuOffsetTop":11, "menuOffsetLeft":0, "menuMaxHeight":350, "menuEvent":"over", "simpleLabel":"<span class=\"icon-sitemap\"></span><span class=\"ws-label\">My Workspaces</span><span class=\"icon-caret-down\"></span>"}'></div>
+					</div>
+					<div id="workspace_toolbar">
+                        <div id="simple_repository_label" ajxpClass="RepositorySimpleLabel" ajxpOptions='{"bindSizeTo":{"width":{"id":"topPane", "events":["resize-FoldersTree-topPane","actions_refreshed"], "min":150,"offset":-5}}}'></div>
+					    <div style="float:left;" ajxpClass="AjxpPane"  id="buttons_bar_cont">
+						    <div id="buttons_bar" class="action_bar" ajxpClass="ActionsToolbar" ajxpOptions='{"toolbarsList":["put"],"groupOtherToolbars":["get", "change", "more", "remote"], "groupOtherLabel":"More","skipBubbling":true, "skipCarousel":true,"submenuOffsetTop":2}'></div>
+						</div>
+						<div style="float:right;" ajxpClass="AjxpPane" ajxpOptions='{"bindSizeTo":{"width":{"id":"info_panel", "events":["resize-InfoPanel-info_panel", "resize-FoldersTree-topPane","actions_refreshed"], "min":120, "offset":-20, "checkSiblings":true}}}' id="search_engine_cont">
+						    <div id="search_engine" ajxpClass="SearchEngine" ajxpOptions='{"toggleResultsVisibility":"search_results_cont", "fitMarginBottom":20}'></div>
+						</div>
+						<div style="clear:both;" class="skipSibling"/>
+					</div>
+				</div>
+				<div id="browser" ajxpClass="AjxpPane" ajxpOptions='{"fit":"height","fitParent":"ajxp_desktop"}'>
+					<div id="vertical_splitter" ajxpClass="Splitter" ajxpOptions='{"direction": "vertical", "maxB":350,"fit":"height","fitParent":"browser", "minSize":0}'>
+    					<div id="vertical_splitter2" ajxpClass="Splitter" ajxpOptions='{"direction": "vertical", "initA": 350, "minA":0, "maxA":250, "fit":"height","fitParent":"browser", "minSize":0, "foldingButton":true}'>
+							<div id="topPane" ajxpClass="FoldersTree" ajxpOptions='{"display":"dz","replaceScroller":true, "headerToolbarOptions":{"submenuClassName":"panelHeaderMenu","submenuPosition":"bottom right","submenuOffsetTop":12,"toolbarsList":["filter"],"skipBubbling":true, "skipCarousel":true,"submenuOffsetTop":2}}' ajxpPaneHeader="130" ajxpPaneIcon="view_tree.png"></div>
+							<div id="cpane_container" ajxpClass="AjxpPane" ajxpOptions='{"fit":"height","fitParent":"browser"}'>
+							    <div id="cpane_header" class="panelHeader">
+							        <div id="display_toolbar" ajxpClass="ActionsToolbar" ajxpOptions='{"submenuClassName":"panelHeaderMenu","submenuPosition":"bottom right","submenuOffsetTop":12,"toolbarsList":["default"],"skipBubbling":true, "skipCarousel":true,"submenuOffsetTop":2}'></div>
+							        <div id="breadcrumb" ajxpClass="Breadcrumb" style="width:50%;" ajxpOptions='{"flexTo":"cpane_header"}'></div>
+							    </div>
+        						<div id="content_pane" ajxpClass="FilesList" ajxpOptions='{"displayMode":"list","replaceScroller":true, "fit":"height", "fitParent":"cpane_container", "cellPaddingCorrection":6}' style="border: 1px solid #bbb; border-width:0 1px;"></div>
+							</div>
+                        </div>
+                        <div id="info_panel" ajxpClass="InfoPanel" ajxpPaneHeader="131" ajxpPaneIcon="file_info.png" ajxpOptions='{"replaceScroller":"true", "skipActions":true}'></div>
+                    </div>
+				</div>
+			]]></template>
+            <template name="widget" element="ajxp_widget" position="top"><![CDATA[
 				<div id="toolbars">
 					<div>
 						<div id="buttons_bar" class="action_bar" ajxpClass="ActionsToolbar" ajxpOptions='{"skipBubbling":true,"defaultIconSize":16,"defaultStyle":"icon_text","styles":{"icons_only":"Icons Only","icon_text":"Icons and Text","text_only":"Text only"},"stylesImgSizes":{"icons_only":22,"icon_text":16,"text_only":16},"stylesBarSizes":{"icons_only":40,"icon_text":51,"text_only":30}}' class="soft_css_gradient"></div>

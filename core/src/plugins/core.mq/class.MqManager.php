@@ -43,7 +43,6 @@ websocket.onmessage = function(event){console.log(event.data);};
 class MqManager extends AJXP_Plugin
 {
 
-    private $clientsGCTime = 10;
     private $wsClient;
 
     /**
@@ -53,10 +52,12 @@ class MqManager extends AJXP_Plugin
 
     function init($options){
         parent::init($options);
-        $msgExchanger = ConfService::getInstance()->getUniquePluginImplInst("MQ_DRIVER", "mq");
-        if($msgExchanger !== false){
-            $this->msgExchanger = $msgExchanger;
-        }
+        try{
+            $msgExchanger = ConfService::getInstance()->getUniquePluginImplInst("MQ_DRIVER", "mq");
+            if($msgExchanger !== false){
+                $this->msgExchanger = $msgExchanger;
+            }
+        }catch (Exception $e){}
     }
 
     /**
@@ -123,9 +124,9 @@ class MqManager extends AJXP_Plugin
             if(!isset($this->wsClient)){
                 $this->wsClient = new WebSocket("ws://".$configs["WS_SERVER_HOST"].":".$configs["WS_SERVER_PORT"].$configs["WS_SERVER_PATH"]);
                 $this->wsClient->addHeader("Admin-Key", $configs["WS_SERVER_ADMIN"]);
-                $this->wsClient->open();
+                @$this->wsClient->open();
             }
-            $this->wsClient->sendMessage($msg);
+            @$this->wsClient->sendMessage($msg);
         }
 
     }
@@ -137,6 +138,7 @@ class MqManager extends AJXP_Plugin
      *
      */
     public function clientChannelMethod($action, $httpVars, $fileVars){
+        if(!$this->msgExchanger) return;
         switch($action){
             case "client_register_channel":
                 $this->msgExchanger->suscribeToChannel($httpVars["channel"], $httpVars["client_id"]);
@@ -145,15 +147,38 @@ class MqManager extends AJXP_Plugin
                 $this->msgExchanger->unsuscribeFromChannel($httpVars["channel"], $httpVars["client_id"]);
                 break;
             case "client_consume_channel":
-                $data = $this->msgExchanger->consumeInstantChannel($httpVars["channel"], $httpVars["client_id"]);
-                if(count($data)){
-                    AJXP_XMLWriter::header();
-                    ksort($data);
-                    foreach($data as $messageObject){
-                        echo $messageObject->content;
-                    }
-                    AJXP_XMLWriter::close();
-                }
+               $user = AuthService::getLoggedUser();
+               if($user == null){
+                   throw new Exception("You must be logged in");
+               }
+               $GROUP_PATH = $user->getGroupPath();
+               if($GROUP_PATH == null) $GROUP_PATH = false;
+               $uId = $user->getId();
+               //session_write_close();
+
+               $startTime = time();
+               $maxTime = $startTime + (30 - 3);
+
+//               while(true){
+
+                   $data = $this->msgExchanger->consumeInstantChannel($httpVars["channel"], $httpVars["client_id"], $uId, $GROUP_PATH);
+                   if(count($data)){
+                       AJXP_XMLWriter::header();
+                       ksort($data);
+                       foreach($data as $messageObject){
+                           echo $messageObject->content;
+                       }
+                       AJXP_XMLWriter::close();
+                   }
+//                       break;
+//                   }else if(time() >= $maxTime){
+//                       break;
+//                   }
+//
+//                   sleep(3);
+//               }
+
+
                 break;
             default:
                 break;

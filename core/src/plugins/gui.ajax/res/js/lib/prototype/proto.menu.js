@@ -107,7 +107,11 @@ Proto.Menu = Class.create({
 			window.clearTimeout(this.timer);
 			this.timer = null;
 		}
-	},
+        if(this.options.parent && this.options.parent.timer){
+            window.clearTimeout(this.options.parent.timer);
+            this.options.parent.timer = null;
+        }
+    },
 	
 	mouseoutFunction:function(e){
 		this.timer = window.setTimeout(function(){
@@ -163,17 +167,28 @@ Proto.Menu = Class.create({
 			var newItem = new Element('li', {className: item.separator ? 'separator' : ''});
 			
 			if(item.moreActions){
-				var actionsContainer = new Element('div', {className:'menuActions',style:'padding-top:4px;'});
+				var actionsContainer = new Element('div', {
+                    className:'menuActions moreActions',
+                    style:'padding-top:4px;'
+                });
 				item.moreActions.each(function(action){
-					actionsContainer.insert(
-						new Element('a', {
-							title:action.name,
-							href:'#'
-						})
-						.writeAttribute('onclick', 'return false;')
-						.observe('click', action.callback)
-						.insert('<img src="'+action.image+'" width="16" height="16" border="0">')
-					);
+                    if(action.icon_class){
+                        actionsContainer.insert(
+                            new Element('span', {
+                                title:action.name,
+                                className:action.icon_class
+                            }).observe('click', action.callback));
+                    }else{
+                        actionsContainer.insert(
+                            new Element('a', {
+                                title:action.name,
+                                href:'#'
+                            })
+                                .writeAttribute('onclick', 'return false;')
+                                .observe('click', action.callback)
+                                .insert('<img src="'+action.image+'" width="16" height="16" border="0">')
+                        );
+                    }
 				});
 				newItem.insert(actionsContainer);
                 newItem.setStyle({position:"relative"});
@@ -181,7 +196,10 @@ Proto.Menu = Class.create({
 				actionsContainer.observe("mouseout", function(){newItem.select('a.enabled')[0].removeClassName("hovered");});
 			}
 			if(item.subMenu){
-				var arrowContainer = new Element('div', {className:'menuActions',style:'padding-right:7px;'});
+				var arrowContainer = new Element('div', {
+                    className:'menuActions' + (window.ajaxplorer.currentThemeUsesIconFonts?' icon-caret-right':''),
+                    style:'padding-right:7px;'
+                });
 				arrowContainer.insert(new Element('img', {src:this.options.submenuArrow, width:6,height:10}));
 				newItem.insert(arrowContainer);
                 newItem.setStyle({position:"relative"});
@@ -190,6 +208,16 @@ Proto.Menu = Class.create({
                 item.name = ajaxplorer.getActionBar().getActionByName(item.action_id).getKeyedText();
                 item.title = ajaxplorer.getActionBar().getActionByName(item.action_id).options.title;
             }
+            var img;
+            if(item.icon_class && window.ajaxplorer.currentThemeUsesIconFonts){
+                img = new Element('span', {
+                    className:item.icon_class + ' ajxp_icon_span',
+                    title:item.alt
+                });
+            }else{
+                if(!item.separator) img = new Element('img', {src:item.image,border:'0',height:16,width:16,align:'absmiddle'});
+            }
+
 			newItem.insert(
 					item.separator 
 						? '' 
@@ -203,14 +231,15 @@ Proto.Menu = Class.create({
 						.writeAttribute('onclick', 'return false;')
 						.observe('click', this.onClick.bind(this))
 						.observe('contextmenu', Event.stop)
-						.update(Object.extend(new Element('img', {src:item.image,border:'0',height:16,width:16,align:'absmiddle'}), {_callback:item.callback} ))
+						.update(Object.extend(img, {_callback:item.callback} ))
 						.insert(item.name)
 				);
             if(newItem.down('u')){
                 newItem.down('u')._callback = item.callback;
             }
             if(item.overlay){
-                newItem.down('img').insert({after:Object.extend(new Element('img', {src:item.overlay, style:'position:relative;margin-left:-12px;top:5px;'}), {_callback:item.callback})});
+                if(newItem.down('img')) newItem.down('img').insert({after:Object.extend(new Element('img', {src:item.overlay, style:'position:relative;margin-left:-12px;top:5px;'}), {_callback:item.callback})});
+                if(newItem.down('span')) newItem.down('span').insert({after:Object.extend(new Element('img', {src:item.overlay, style:'position:relative;margin-left:-12px;top:5px;'}), {_callback:item.callback})});
             }
 			newItem._callback = item.callback;
 			if(item.subMenu){
@@ -223,7 +252,7 @@ Proto.Menu = Class.create({
 				newItem.subMenu = new Proto.Menu({
 				  mouseClick:"over",
 				  anchor: newItem, 
-				  className: 'menu desktop', 
+				  className: this.options.className,
 				  topOffset : 0,
 				  leftOffset : -1,		 
 				  menuItems: item.subMenu,
@@ -283,6 +312,7 @@ Proto.Menu = Class.create({
 			this.shim.setStyle(Object.extend(Object.extend(elDim, elOff), {zIndex: this.options.zIndex - 1})).show();
 		}				
 		if(this.options.fade){
+            this.checkHeight(elOff.top);
 			Effect.Appear(this.container, {
 				duration: this.options.fadeTime || 0.15, 
 				afterFinish : function(e){
@@ -299,12 +329,16 @@ Proto.Menu = Class.create({
 	},
 	
 	checkHeight : function(offsetTop){
+        offsetTop = parseInt(offsetTop);
 		if(this.options.anchor == 'mouse') return;
-		var vpHeight = getViewPortHeight();
+		var vpHeight = getViewPortHeight()-10;
+        if(this.options.menuMaxHeight){
+            vpHeight = Math.min(this.options.menuMaxHeight, vpHeight);
+        }
 		var vpOff = document.viewport.getScrollOffsets();
 		var elDim = this.container.getDimensions();
 		var y = parseInt(offsetTop);
-		if((y - vpOff.top + elDim.height) > vpHeight){			
+		if((y - vpOff.top + elDim.height) >= vpHeight){
 			this.container.setStyle({height:(vpHeight-(y - vpOff.top))+'px',overflowY:'scroll'}); 
 			if(!this.containerShrinked) this.container.setStyle({width:elDim.width+16+'px'});
 			this.containerShrinked = true;
@@ -333,12 +367,15 @@ Proto.Menu = Class.create({
 		var anchorPosition = Position.cumulativeOffset($(this.options.anchor));
 		var anchorScroll = this.options.anchor.cumulativeScrollOffset();
 		
-		if(this.options.position == 'bottom' || this.options.position == 'bottom right'){
+		if(this.options.position == 'bottom' || this.options.position == 'bottom right' || this.options.position == 'bottom middle'){
 			var topPos = anchorPosition[1] + $(this.options.anchor).getHeight() + this.options.topOffset - anchorScroll[1];
 			var leftPos = anchorPosition[0] + this.options.leftOffset - anchorScroll[0];
 			if(this.options.position == 'bottom right'){
 				leftPos = anchorPosition[0] + $(this.options.anchor).getWidth() + this.options.leftOffset - anchorScroll[0];
 				leftPos -= this.container.getWidth();
+			}else if(this.options.position == 'bottom middle'){
+				leftPos = anchorPosition[0] + $(this.options.anchor).getWidth()/2 + this.options.leftOffset - anchorScroll[0];
+				leftPos -= this.container.getWidth()/2;
 			}
 		}else if(this.options.position == 'right'){
 			var vpDim = document.viewport.getDimensions();

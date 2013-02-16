@@ -8,8 +8,9 @@
 		</action>
         <action name="user_create_repository">
             <gui text="417" title="418" src="user-create-repository.png" accessKey="" hasAccessKey="false">
-                <context selection="false" dir="" recycle="true" ajxpWidgets="RepositorySelect"></context>
+                <context selection="false" dir="" recycle="true" ajxpWidgets="RepositorySelect"/>
             </gui>
+            <rightsContext adminOnly="false" noUser="false" read="false" userLogged="only" write="false"/>
             <processing>
 				<clientCallback prepareModal="true" dialogOpenForm="user_create_repository_form" dialogOkButtonOnly="false" dialogSkipButtons="false">
 					<dialogOnOpen><![CDATA[
@@ -141,8 +142,41 @@
 			</processing>
 		</action>
 		<action name="get_bookmarks">
-			<processing>
-				<serverCallback methodName="switchAction"></serverCallback>
+            <gui text="145" title="145" src="edit_user.png" iconClass="icon-star" accessKey="" hasAccessKey="false">
+                <context selection="false" dir="" recycle="true" actionBar="true" actionBarGroup="filter" contextMenu="false" infoPanel="false"/>
+            </gui>
+            <rightsContext adminOnly="false" noUser="true" read="false" userLogged="only" write="false"/>
+            <processing>
+                <clientCallback><![CDATA[
+
+                ]]></clientCallback>
+                <clientListener name="init"><![CDATA[
+                window.setTimeout(function(){
+                    if(!$('get_bookmarks_button')) return;
+                    var bmBar = new BookmarksBar($('get_bookmarks_button'), {bookmarksMenuOptions:{
+                        className: 'menu desktop toolbarmenu panelHeaderMenu bmbarMenu',
+                        mouseClick:'over',
+                        topOffset:2,
+                        leftOffset:0,
+                        position:'bottom right'
+                    }});
+                    var bmAction = ajaxplorer.actionBar.actions.get('bookmark');
+                    bmBar.addBookmarkObject = {
+                        name:bmAction.getKeyedText(),
+                        alt:bmAction.options.title,
+                        image:ajxpResourcesFolder+'/images/actions/16/bookmark_add.png',
+                        icon_class:'icon-plus-sign',
+                        callback:function(e){
+                            var node = ajaxplorer.getContextNode();
+                            node.getMetadata().set('ajxp_bookmarked', 'true');
+                            node.getMetadata().set('overlay_icon', 'bookmark.png');
+                            bmBar.addBookmark(node.getPath(), node.getLabel());
+                        }.bind(this)
+                    };
+                    bmBar.load($H(), true);
+                }, 500);
+                ]]></clientListener>
+                <serverCallback methodName="switchAction"></serverCallback>
 			</processing>
 		</action>
 		<action name="save_user_pref">
@@ -166,10 +200,11 @@
             </processing>
         </action>
         <action name="custom_data_edit">
-      			<gui text="442" title="443" src="edit_user.png" accessKey="" hasAccessKey="false">
+      			<gui text="442" title="443" src="edit_user.png" iconClass="icon-reorder" accessKey="" hasAccessKey="false">
       				<context selection="false" dir="" recycle="true" actionBar="false" actionBarGroup="utils" contextMenu="false" infoPanel="false" ajxpWidgets="UserWidget::logging_string"></context>
       			</gui>
-      			<processing>
+                <rightsContext adminOnly="false" noUser="false" read="false" userLogged="only" write="false"/>
+            <processing>
       				<clientCallback prepareModal="true" dialogOpenForm="custom_data_edit" dialogOkButtonOnly="false" dialogSkipButtons="false">
       					<dialogOnOpen><![CDATA[
       					    var f = new FormManager();
@@ -203,10 +238,9 @@
       				<serverCallback methodName="switchAction"></serverCallback>
       			</processing>
       		</action>
-        <!--
 		<action name="switch_language">
 			<gui text="190" title="190" src="flag.png" accessKey="" hasAccessKey="false">
-				<context selection="false" dir="" recycle="true" actionBar="false" actionBarGroup="utils" contextMenu="false" infoPanel="false" ajxpWidgets="UserWidget::logging_string"></context>
+				<context selection="false" dir="" recycle="true" actionBar="false" actionBarGroup="utils" contextMenu="false" infoPanel="false"></context>
 			</gui>
 			<processing>
 				<clientCallback prepareModal="true" dialogOpenForm="switch_language_form" dialogOkButtonOnly="false" dialogSkipButtons="false">
@@ -256,9 +290,8 @@
 				<serverCallback methodName="switchAction"></serverCallback>
 			</processing>		
 		</action>
-		-->
 		<action name="webdav_preferences">
-			<gui text="403" title="403" src="drive_remote.png" accessKey="" hasAccessKey="false">
+			<gui text="403" title="403" src="drive_remote.png" iconClass="icon-cog" accessKey="" hasAccessKey="false">
 				<context selection="false" dir="" recycle="true" actionBar="false" actionBarGroup="utils" contextMenu="false" infoPanel="false" ajxpWidgets="UserWidget::logging_string"></context>
 			</gui>
             <rightsContext noUser="false" userLogged="only" read="true" write="false" adminOnly=""></rightsContext>

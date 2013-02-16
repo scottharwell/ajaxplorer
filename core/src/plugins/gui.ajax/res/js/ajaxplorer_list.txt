@@ -34,6 +34,8 @@ js/ajaxplorer/class.AjxpSortable.js
 js/ajaxplorer/class.AjxpTabulator.js
 js/ajaxplorer/class.AjxpSimpleTabs.js
 js/ajaxplorer/class.RepositorySelect.js
+js/ajaxplorer/class.RepositorySimpleLabel.js
+js/ajaxplorer/class.Breadcrumb.js
 js/ajaxplorer/class.LocationBar.js
 js/ajaxplorer/class.UserWidget.js
 js/ajaxplorer/class.AjxpAutoCompleter.js
@@ -46,6 +48,7 @@ js/ajaxplorer/class.ActionsToolbar.js
 js/ajaxplorer/class.BackgroundManager.js
 js/ajaxplorer/class.AjxpDataModel.js
 js/ajaxplorer/class.HeaderResizer.js
+js/ajaxplorer/class.PreviewFactory.js
 js/ajaxplorer/class.FilesList.js
 js/ajaxplorer/class.FoldersTree.js
 js/ajaxplorer/class.SearchEngine.js

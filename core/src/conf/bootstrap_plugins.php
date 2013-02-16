@@ -22,6 +22,7 @@
  * needs to run properly : an Authentication plugin, a Configuration plugin, and a Logger plugin.
  */
 
+
 defined('AJXP_EXEC') or die( 'Access not allowed');
 /********************************************
  * CUSTOM VARIABLES HOOK
@@ -32,6 +33,7 @@ defined('AJXP_EXEC') or die( 'Access not allowed');
  */
 //require_once AJXP_INSTALL_PATH."/plugins/action.skeleton/class.PluginSkeleton.php";
 //AJXP_Controller::registerIncludeHook("vars.filter", array("PluginSkeleton", "filterVars"));
+
 
 /*********************************************************/
 /* PLUGINS DEFINITIONS
@@ -56,7 +58,12 @@ $PLUGINS = array(
 			"ROLES_FILEPATH"		=> "AJXP_DATA_PATH/plugins/auth.serial/roles.ser",
 			"USERS_DIRPATH"			=> "AJXP_DATA_PATH/plugins/auth.serial",
             "FAST_CHECKS"		    => false,
+			)
+	),
+	"AUTH_DRIVER" => array(
+		"NAME"		=> "serial",
 			"CUSTOM_DATA"			=> array(
+			"LOGIN_REDIRECT"		=> false,
 					"email"	=> "Email",
 					"country" => "Country"
 				)
@@ -68,15 +75,25 @@ $PLUGINS = array(
 		"SLAVE_MODE"  => true,
 		"USERS_FILEPATH" => "AJXP_INSTALL_PATH/data/cache/users.ser",
 		"LOGIN_URL" => "/users/login",  // The URL to redirect to if a non-logged user tries to access AjaXplorer
+             "LOG_CHMOD" => 0770
+         )
+    ),
+    /*
+    "FEED_DRIVER" => array(
 		"LOGOUT_URL" => "/users/logout",  // The URL to redirect upon login out
 		"SECRET" => "mysecret",// the secret key that you will pass to the glueCode when communicating with it (see below)		
+            "SQL_DRIVER" =>  array(
 		"TRANSMIT_CLEAR_PASS"   => false ) // Don't touch this. It's unsafe (and useless here) to transmit clear password.
  	),	
     "LOG_DRIVER" => array(
-         "NAME" => "text",
-         "OPTIONS" => array(
-             "LOG_PATH" => (defined("AJXP_FORCE_LOGPATH")?AJXP_FORCE_LOGPATH:"AJXP_INSTALL_PATH/data/logs/"),
-             "LOG_FILE_NAME" => 'log_' . date('m-d-y') . '.txt',
+                "database"      => "ajaxplorer",
+                "user"          => "XXXXXX",
+                "password"      => "XXXXXX",
+            )
+        )
+    ),
+    */
+    "MQ_DRIVER" => array(
              "LOG_CHMOD" => 0770
          )
     )

@@ -35,6 +35,7 @@ Class.create("Action", {
 		this.options = Object.extend({
 			name:'',
 			src:'',
+            icon_class:'',
 			text:'',
 			title:'',
 			text_id:'',
@@ -139,7 +140,8 @@ Class.create("Action", {
 		if(this.options.prepareModal){
 			modal.prepareHeader(
 				this.options.title, 
-				resolveImageSource(this.options.src,this.__DEFAULT_ICON_PATH, 16)
+				resolveImageSource(this.options.src,this.__DEFAULT_ICON_PATH, 16),
+                this.options.icon_class
 			);
 		}
 		window.actionArguments = $A([]);
@@ -369,6 +371,7 @@ Class.create("Action", {
 				this.options.text = MessageHash[node.getAttribute('text')] || 'not_found';
 				this.options.title = MessageHash[node.getAttribute('title')] || 'not_found';
 				this.options.src = node.getAttribute('src');								
+				this.options.icon_class = node.getAttribute('iconClass');
 				if(node.getAttribute('hasAccessKey') && node.getAttribute('hasAccessKey') == "true"){
 					this.options.accessKey = node.getAttribute('accessKey');
 					this.options.hasAccessKey = true;
@@ -450,6 +453,7 @@ Class.create("Action", {
 					name:itemText,
 					alt:MessageHash[item.title],
 					image:resolveImageSource(item.src, '/images/actions/ICON_SIZE', 22),
+                    icon_class:item.icon_class,
 					isDefault:(item.isDefault?true:false),
 					callback:function(e){this.apply([item]);}.bind(this)
 				});
@@ -466,6 +470,7 @@ Class.create("Action", {
 			setTimeout(function(){
 				if(this.subMenuItems.dynamicBuilderCode){
 					window.builderContext = this;
+                    window.builderProtoMenu = protoMenu;
 					this.subMenuItems.dynamicBuilderCode.evalScripts();
 					var menuItems = this.builderMenuItems || [];					
 				}else{
@@ -473,12 +478,23 @@ Class.create("Action", {
 			  		this.subMenuItems.dynamicItems.each(function(item){
 			  			var action = this.manager.actions.get(item['actionId']);
 			  			if(action.deny) return;
-						menuItems.push({
+						var itemData = {
 							name:action.getKeyedText(),
 							alt:action.options.title,
+                            icon_class:action.options.icon_class,
 							image:resolveImageSource(action.options.src, '/images/actions/ICON_SIZE', 16),						
 							callback:function(e){this.apply();}.bind(action)
-						});
+						};
+                        if(action.options.subMenu){
+                            itemData.subMenu = [];
+                            if(action.subMenuItems.staticOptions){
+                                itemData.subMenu = action.subMenuItems.staticOptions;
+                            }
+                            if(action.subMenuItems.dynamicBuilder){
+                                itemData.subMenuBeforeShow = action.subMenuItems.dynamicBuilder;
+                            }
+                        }
+                        menuItems.push(itemData);
 			  		}, this);
 				}
 			  	protoMenu.options.menuItems = menuItems;
@@ -491,11 +507,14 @@ Class.create("Action", {
 	 * Refresh icon image source
 	 * @param newSrc String The image source. Can reference an image library
 	 */
-	setIconSrc : function(newSrc){
+	setIconSrc : function(newSrc, iconClass){
 		this.options.src = newSrc;
 		if($(this.options.name +'_button_icon')){
 			$(this.options.name +'_button_icon').src = resolveImageSource(this.options.src,this.__DEFAULT_ICON_PATH, 22);
-		}		
+		}
+        if(iconClass){
+            this.options.icon_class = iconClass;
+        }
 	},
 	
 	/**

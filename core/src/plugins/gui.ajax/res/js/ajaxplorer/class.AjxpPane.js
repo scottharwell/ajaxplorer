@@ -47,8 +47,58 @@ Class.create("AjxpPane", {
         }
 		this.childrenPanes = $A([]);
 		this.scanChildrenPanes(this.htmlElement);
-	},
-	
+        if(this.options.bindSizeTo){
+            if(this.options.bindSizeTo.width){
+                this.options.bindSizeTo.width.events.each(function(eventName){
+                    document.observe("ajaxplorer:" + eventName, this.resizeBound.bind(this));
+                }.bind(this) );
+
+            }
+        }
+
+    },
+
+    resizeBound : function(event){
+        "use strict";
+        var min = this.options.bindSizeTo.width.min;
+        if(Object.isString(min) && min.indexOf("%") != false) min = this.htmlElement.parentNode.getWidth() * min / 100;
+        var w = Math.max($(this.options.bindSizeTo.width.id).getWidth() + this.options.bindSizeTo.width.offset, min);
+        if(this.options.bindSizeTo.width.max) {
+            var max = this.options.bindSizeTo.width.max;
+            if(Object.isString(max) && max.indexOf("%") != false) max = this.htmlElement.parentNode.getWidth() * max / 100;
+            w = Math.min(max, w);
+        }
+        if(this.options.bindSizeTo.width.checkSiblings){
+            w = this.filterWidthFromSiblings(w);
+        }
+        this.htmlElement.setStyle({width: w + "px"});
+        this.resize();
+
+        if(this.options.bindSizeTo.width.checkSiblings){
+            this.htmlElement.siblings().each(function(s){
+                if(s.ajxpPaneObject){
+                    s.ajxpPaneObject.resize();
+                }
+            });
+        }
+    },
+
+    filterWidthFromSiblings : function(original){
+        "use strict";
+        var parentWidth = this.htmlElement.parentNode.getWidth();
+        var siblingWidth = 0;
+        this.htmlElement.siblings().each(function(s){
+            if(s.hasClassName('skipSibling')) return;
+            if(s.ajxpPaneObject && s.ajxpPaneObject.getActualWidth){
+                siblingWidth+=s.ajxpPaneObject.getActualWidth();
+            }else{
+                siblingWidth+=s.getWidth();
+            }
+        });
+        original = Math.min(original, parentWidth - siblingWidth - 20);
+        return original;
+    },
+
 	/**
 	 * Called when the pane is resized
 	 */
@@ -120,7 +170,8 @@ Class.create("AjxpPane", {
 	 * @param headerIcon String Path for the icon image
 	 */
 	addPaneHeader : function(headerLabel, headerIcon){
-        var header = new Element('div', {className:'panelHeader',ajxp_message_id:headerLabel}).update(MessageHash[headerLabel]);
+        var label = new Element('span', {ajxp_message_id:headerLabel}).update(MessageHash[headerLabel]);
+        var header = new Element('div', {className:'panelHeader'}).update(label);
         if(headerIcon){
             var ic = resolveImageSource(headerIcon, '/images/actions/ICON_SIZE', 16);
             header.insert({top: new Element("img", {src:ic, className:'panelHeaderIcon'})});
@@ -137,7 +188,15 @@ Class.create("AjxpPane", {
         }
 		this.htmlElement.insert({top : header});
 		disableTextSelection(header);
-	},
+
+        if(this.options.headerToolbarOptions){
+            var tbD = new Element('div', {id:"display_toolbar"});
+            header.insert({top:tbD});
+            var tb = new ActionsToolbar(tbD, this.options.headerToolbarOptions);
+        }
+
+
+    },
 	
 	/**
 	 * Sets a listener when the htmlElement is focused to notify ajaxplorer object

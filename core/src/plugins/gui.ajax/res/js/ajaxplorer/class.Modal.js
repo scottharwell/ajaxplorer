@@ -60,11 +60,20 @@ Class.create("Modal", {
 	 * @param sTitle String Title of the popup
 	 * @param sIconSrc String Source icon
 	 */
-	prepareHeader: function(sTitle, sIconSrc){
+	prepareHeader: function(sTitle, sIconSrc, sIconClass){
 		var hString = "<span class=\"titleString\">";
 		if(sIconSrc != "") hString = "<span class=\"titleString\"><img src=\""+sIconSrc.replace('22', '16')+"\" width=\"16\" height=\"16\" align=\"top\"/>&nbsp;";
-		var closeBtn = '<img id="modalCloseBtn" style="cursor:pointer;float:right;margin-top:2px;" src="'+ajxpResourcesFolder+'/images/actions/16/window_close.png" />';  
-		hString += sTitle + '</span>';
+        var closeBtn;
+        if(window.ajaxplorer.currentThemeUsesIconFonts){
+            if(sIconClass){
+                hString = "<span class=\"titleString\"><span class='"+sIconClass+" ajxp_icon_span'></span>";
+            }
+            closeBtn = '<span id="modalCloseBtn" class="icon-remove-sign" style="cursor:pointer;float:right;"></span>';
+        }else{
+            closeBtn = '<img id="modalCloseBtn" style="cursor:pointer;float:right;margin-top:2px;" src="'+ajxpResourcesFolder+'/images/actions/16/window_close.png" />';
+        }
+
+        hString += sTitle + '</span>';
 		this.dialogTitle.update(closeBtn + hString);
 	},
 	
@@ -143,11 +152,17 @@ Class.create("Modal", {
 				return false;
 			};
 		}
+        var overlayStyle = undefined;
+        if($(sFormId).getAttribute("overlayStyle")){
+            overlayStyle = $(sFormId).getAttribute("overlayStyle").evalJSON();
+        }
 		this.showContent(this.elementName, 
 				$(sFormId).getAttribute("box_width"), 
 				$(sFormId).getAttribute("box_height"),
 				null,
-				($(sFormId).getAttribute("box_resize") && $(sFormId).getAttribute("box_resize") == "true"));
+				($(sFormId).getAttribute("box_resize") && $(sFormId).getAttribute("box_resize") == "true"),
+                overlayStyle
+        );
 		if($(newForm).select(".dialogFocus").length)
 		{
 			objToFocus = $(newForm).select(".dialogFocus")[0];
@@ -191,7 +206,7 @@ Class.create("Modal", {
 	 * @param boxHeight String Height in pixel or in percent
 	 * @param skipShadow Boolean Do not add a shadow
 	 */
-	showContent: function(elementName, boxWidth, boxHeight, skipShadow, boxAutoResize){
+	showContent: function(elementName, boxWidth, boxHeight, skipShadow, boxAutoResize, overlayStyle){
 		ajaxplorer.disableShortcuts();
 		ajaxplorer.disableNavigation();
 		ajaxplorer.blurAll();
@@ -249,7 +264,7 @@ Class.create("Modal", {
             Event.observe(window, "resize", this.currentResizeListener);
         }
 			
-		displayLightBoxById(elementName);
+		displayLightBoxById(elementName, overlayStyle);
 		
 		// FORCE ABSOLUTE FOR SAFARI
 		$(elementName).style.position = 'absolute';
@@ -285,7 +300,7 @@ Class.create("Modal", {
 			return;
 		}
 		var editorKlass = editorData.editorClass;
-		modal.prepareHeader(editorData.text, resolveImageSource(editorData.icon, '/images/actions/ICON_SIZE', 16));
+		modal.prepareHeader(editorData.text, resolveImageSource(editorData.icon, '/images/actions/ICON_SIZE', 16), editorData.icon_class);
 		var loadFunc = function(oForm){			
 			if(typeof(editorKlass) == "string"){
 				ajaxplorer.actionBar.editor = eval('new '+editorKlass+'(oForm)');
@@ -359,6 +374,15 @@ Class.create("Modal", {
         });
     },
 
+
+    createTopCaret:function(element){
+        "use strict";
+        element.insert({top:'<span class="icon-caret-up ajxp-caret-up"></span>'});
+        var caret = element.down('span.ajxp-caret-up');
+        caret.setStyle({
+            left: (element.getWidth() -  caret.getWidth()) / 2 + 'px'
+        });
+    },
 
 	/**
 	 * Returns the current form, the real one.
@@ -455,8 +479,8 @@ Class.create("Modal", {
         }
 		var okButton = new Element('input', {
 			type:'image',
-			name:(bOkButtonOnly?'close':'ok'),
-			src:ajxpResourcesFolder+'/images/actions/22/'+(bOkButtonOnly?'dialog_close':(useNextButton?'forward':'dialog_ok_apply'))+'.png',
+			name:(bOkButtonOnly?'ok':'ok'),
+			src:ajxpResourcesFolder+'/images/actions/22/'+(bOkButtonOnly?'dialog_ok_apply':(useNextButton?'forward':'dialog_ok_apply'))+'.png',
 			height:22,
 			width:22,
 			title:MessageHash[48]});

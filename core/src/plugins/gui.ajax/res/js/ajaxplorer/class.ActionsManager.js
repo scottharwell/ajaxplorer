@@ -89,10 +89,10 @@ Class.create("ActionsManager", {
 		{
 			actionsSelectorAtt = 'genericContext';
 		}
-		else if(srcElement.id.substring(0,5)=='webfx')
-		{
-			actionsSelectorAtt = 'directoryContext';
-		}
+		//else if(srcElement.id.substring(0,5)=='webfx')
+		//{
+		//	actionsSelectorAtt = 'directoryContext';
+		//}
 		var contextActions = new Array();
 		var defaultGroup;
         var contextActionsGroup = {};
@@ -133,6 +133,9 @@ Class.create("ActionsManager", {
 				isDefault:isDefault,
 				callback:function(e){this.apply();}.bind(action)
 			};
+            if(action.options.icon_class){
+                menuItem.icon_class = action.options.icon_class;
+            }
 			if(action.options.subMenu){
 				menuItem.subMenu = [];
 				if(action.subMenuItems.staticOptions){
@@ -501,6 +504,7 @@ Class.create("ActionsManager", {
                 var errorId = false;
 				if(result == '1')
 				{
+                    modal.setCloseValidation(null);
 					hideLightBox(true);
 					if(childs[i].getAttribute('remember_login') && childs[i].getAttribute('remember_pass')){
 						var login = childs[i].getAttribute('remember_login');

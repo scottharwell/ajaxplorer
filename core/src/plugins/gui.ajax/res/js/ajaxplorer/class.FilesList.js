@@ -30,6 +30,7 @@ Class.create("FilesList", SelectableElements, {
     __currentInstanceIndex:1,
     _dataModel:null,
     _doubleClickListener:null,
+    _previewFactory : null,
 	/**
 	 * Constructor
 	 * @param $super klass Reference to the constructor
@@ -41,6 +42,9 @@ Class.create("FilesList", SelectableElements, {
 		$super(null, true);
 		$(oElement).ajxpPaneObject = this;
 		this.htmlElement = $(oElement);
+        this._previewFactory = new PreviewFactory();
+        this._previewFactory.sequencialLoading = true;
+
 		if(typeof initDefaultDispOrOptions == "string"){
 			this.options = {};
 			this._displayMode = initDefaultDispOrOptions;
@@ -119,7 +123,10 @@ Class.create("FilesList", SelectableElements, {
         var selectionChangedObserver = function(event){
 			if(event.memo._selectionSource == null || event.memo._selectionSource == this) return;
             var dm = (this._dataModel?this._dataModel:ajaxplorer.getContextHolder());
-			this.setSelectedNodes(dm.getSelectedNodes());
+            var origFC = this._fireChange;
+			this._fireChange = false;
+            this.setSelectedNodes(dm.getSelectedNodes());
+            this._fireChange = origFC;
 		}.bind(this);
 
         if(this._dataModel){
@@ -402,9 +409,10 @@ Class.create("FilesList", SelectableElements, {
 	getActions : function(){
 		// function may be bound to another context
 		var oThis = this;
-		var options = {
+		var options1 = {
 			name:'multi_display',
 			src:'view_icon.png',
+            icon_class:'icon-th-list',
 			text_id:150,
 			title_id:151,
 			text:MessageHash[150],
@@ -430,24 +438,63 @@ Class.create("FilesList", SelectableElements, {
 					}.bind(window.listenerContext), 500);								
 				}
 			}
-			};
-		var context = {
+	    };
+		var context1 = {
 			selection:false,
 			dir:true,
 			actionBar:true,
 			actionBarGroup:'default',
-			contextMenu:true,
+			contextMenu:false,
 			infoPanel:false			
 			};
-		var subMenuItems = {
+		var subMenuItems1 = {
 			staticItems:[
-				{text:228,title:229,src:'view_icon.png',command:'thumb',hasAccessKey:true,accessKey:'thumbs_access_key'},
-				{text:226,title:227,src:'view_text.png',command:'list',hasAccessKey:true,accessKey:'list_access_key'}
+				{text:228,title:229,src:'view_icon.png',icon_class:'icon-th',command:'thumb',hasAccessKey:true,accessKey:'thumbs_access_key'},
+				{text:226,title:227,src:'view_text.png',icon_class:'icon-list',command:'list',hasAccessKey:true,accessKey:'list_access_key'}
 				]
 		};
 		// Create an action from these options!
-		var multiAction = new Action(options, context, {}, {}, subMenuItems);		
-		return $H({multi_display:multiAction});
+		var multiAction = new Action(options1, context1, {}, {}, subMenuItems1);
+
+        var options2 = {
+			name:'thumb_size',
+			src:'view_icon.png',
+            icon_class:'icon-resize-full',
+			text_id:150,
+			title_id:151,
+			text:MessageHash[150],
+			title:MessageHash[151],
+			hasAccessKey:false,
+			subMenu:false,
+			subMenuUpdateImage:false,
+			callback: function(){
+                oThis.slider.show($('thumb_size_button'));
+			},
+			listeners : {
+				init:function(){
+                    oThis.observe('switch-display-mode', function(e){
+                        if(oThis._displayMode != 'thumb') $('thumb_size_button').hide();
+                        else $('thumb_size_button').show();
+                    });
+                    window.setTimeout(function(){
+                        if(oThis._displayMode != 'thumb') $('thumb_size_button').hide();
+                        else $('thumb_size_button').show();
+                    }.bind(window.listenerContext), 500);
+                }
+			}
+	    };
+		var context2 = {
+			selection:false,
+			dir:true,
+			actionBar:true,
+			actionBarGroup:'default',
+			contextMenu:false,
+			infoPanel:false
+		};
+		// Create an action from these options!
+		var thumbsizeAction = new Action(options2, context2, {}, {});
+
+		return $H({thumb_size:thumbsizeAction, multi_display:multiAction});
 	},
 	
 	/**
@@ -499,7 +546,7 @@ Class.create("FilesList", SelectableElements, {
 					userWidth = column.fixedWidth;
 				}
 				var label = (column.messageId?MessageHash[column.messageId]:column.messageString);
-				var leftPadding = 0;
+				var leftPadding = this.options.cellPaddingCorrection || 0 ;
 				if(column.attributeName == "ajxp_label"){// Will contain an icon
 					leftPadding = 24;
 				}
@@ -599,7 +646,7 @@ Class.create("FilesList", SelectableElements, {
 			});
 		}
 		else if(this._displayMode == "thumb")
-		{			
+		{
 			if(this.headerMenu){
 				this.headerMenu.destroy();
 				delete this.headerMenu;
@@ -824,7 +871,8 @@ Class.create("FilesList", SelectableElements, {
             this.htmlElement.down('.table_rows_container').setStyle({width:'100%'});
     	}
 		this.notify("resize");
-	},
+        document.fire("ajaxplorer:resize-FilesList-" + this.htmlElement.id, this.htmlElement.getDimensions());
+    },
 	
 	/**
 	 * Link focusing to ajaxplorer main
@@ -860,7 +908,7 @@ Class.create("FilesList", SelectableElements, {
         }else{
             this._displayMode = (this._displayMode == "thumb"?"list":"thumb");
         }
-
+        this.notify('switch-display-mode');
 		this.initGUI();
         this.empty(true);
 		this.fill(this.getCurrentContextNode());
@@ -879,8 +927,20 @@ Class.create("FilesList", SelectableElements, {
 	getDisplayMode: function(){
 		return this._displayMode;
 	},
-	
+
+    initRowsBuffered : function(){
+        if(this.iRBTimer){
+            window.clearTimeout(this.iRBTimer);
+            this.iRBTimer = null;
+        }
+        this.iRBTimer = window.setTimeout(function(){
+            this.initRows();
+            this.iRBTimer = null;
+        }.bind(this), 200);
+    },
+
 	/**
+     *
 	 * Called after the rows/thumbs are populated
 	 */
 	initRows: function(){
@@ -890,7 +950,10 @@ Class.create("FilesList", SelectableElements, {
 		{
 			this.resizeThumbnails();		
 			if(this.protoMenu) this.protoMenu.addElements('#selectable_div-'+this.__currentInstanceIndex);
-			window.setTimeout(this.loadNextImage.bind(this),10);		
+			window.setTimeout(function(){
+                this._previewFactory.setThumbSize(this._thumbSize);
+                this._previewFactory.loadNextImage();
+            }.bind(this),10);
 		}
 		else
 		{
@@ -908,37 +971,8 @@ Class.create("FilesList", SelectableElements, {
         this.notify("resize");
         this.notify("rows:didInitialize");
 	},
-	/**
-	 * Queue processor for thumbnail async loading
-	 */
-	loadNextImage: function(){
-		if(this.imagesHash && this.imagesHash.size())
-		{
-			if(this.loading) return;
-			var oImageToLoad = this.imagesHash.unset(this.imagesHash.keys()[0]);		
-			window.loader = new Image();
-			window.loader.editorClass = oImageToLoad.editorClass;
-            window.loader.onerror = this.loadNextImage.bind(this);
-			window.loader.src = window.loader.editorClass.prototype.getThumbnailSource(oImageToLoad.ajxpNode);
-			var loader = function(){
-				var img = oImageToLoad.rowObject.IMAGE_ELEMENT || $(oImageToLoad.index);
-				if(img == null || window.loader == null) return;
-				var newImg = window.loader.editorClass.prototype.getPreview(oImageToLoad.ajxpNode);
-				newImg.setAttribute("data-is_loaded", "true");
-				img.parentNode.replaceChild(newImg, img);
-				oImageToLoad.rowObject.IMAGE_ELEMENT = newImg;
-				this.resizeThumbnails(oImageToLoad.rowObject);
-				this.loadNextImage();				
-			}.bind(this);
-			if(window.loader.readyState && window.loader.readyState == "complete"){
-				loader();
-			}else{
-				window.loader.onload = loader;
-			}
-		}else{
-			if(window.loader) window.loader = null;
-		}	
-	},
+
+
 	/**
 	 * Triggers a reload of the rows/thumbs
 	 * @param additionnalParameters Object
@@ -958,7 +992,7 @@ Class.create("FilesList", SelectableElements, {
      */
 
     empty : function(skipFireChange){
-        this.imagesHash = new Hash();
+        this._previewFactory.clear();
         if(this.protoMenu){
             this.protoMenu.removeElements('.ajxp_draggable');
             this.protoMenu.removeElements('.selectable_div');
@@ -1001,8 +1035,9 @@ Class.create("FilesList", SelectableElements, {
                 var newItem = renderer(ajxpNode, item);
                 item.insert({before: newItem});
                 item.remove();
-                if(item.ajxpNode && item.REPLACE_OBS) {
-                    item.ajxpNode.stopObserving("node_replaced", item.REPLACE_OBS);
+                if(item.ajxpNode) {
+                    if(item.REMOVE_OBS) item.ajxpNode.stopObserving("node_removed", item.REMOVE_OBS);
+                    if(item.REPLACE_OBS) item.ajxpNode.stopObserving("node_replaced", item.REPLACE_OBS);
                 }
                 newItem.ajxpNode = ajxpNode;
                 this.initRows();
@@ -1034,18 +1069,25 @@ Class.create("FilesList", SelectableElements, {
             try{
                 if(this.loading) return;
                 this.setItemSelected(item, false);
-                if(item.ajxpNode && item.REMOVE_OBS) {
-                    item.ajxpNode.stopObserving("node_removed", item.REMOVE_OBS);
+                if(item.ajxpNode) {
+                    if(item.REMOVE_OBS) item.ajxpNode.stopObserving("node_removed", item.REMOVE_OBS);
+                    if(item.REPLACE_OBS) item.ajxpNode.stopObserving("node_replaced", item.REPLACE_OBS);
+                    if(!item.parentNode){
+                        item =  this.htmlElement.down('[id="'+item.ajxpNode.getPath()+'"]');
+                    }
                 }
                 item.ajxpNode = null;
                 new Effect.Shrink(item, {afterFinish:function(){
                     try{item.remove();}catch(e){}
                     delete item;
-                    this.initRows();
-                }.bind(this), duration:0.4});
-                //item.remove();
-                //delete item;
-                //this.initRows();
+                    this.initRowsBuffered();
+                    //this.initRows();
+                }.bind(this), duration:0.2});
+                /*
+                item.remove();
+                delete item;
+                this.initRowsBuffered();
+                */
             }catch(e){
 
             }
@@ -1070,6 +1112,9 @@ Class.create("FilesList", SelectableElements, {
         if(this._sortableTable){
             var sortColumn = this.crtContext.getMetadata().get("filesList.sortColumn");
          	var descending = this.crtContext.getMetadata().get("filesList.descending");
+            if(sortColumn == undefined) {
+                sortColumn = 0;
+            }
             if(sortColumn != undefined){
                 sortColumn = parseInt(sortColumn);
                 var sortFunction = this._sortableTable.getSortFunction(this._sortableTable.getSortType(sortColumn), sortColumn);
@@ -1078,7 +1123,13 @@ Class.create("FilesList", SelectableElements, {
                 for(var i=0;i<sortCache.length;i++){
                     if(sortCache[i].element == newItem){
                         if(i == 0) $(newItem.parentNode).insert({top:newItem});
-                        else sortCache[i-1].element.insert({after:newItem});
+                        else {
+                            if(sortCache[i-1].element.ajxpNode.getPath() == newItem.ajxpNode.getPath()){
+                                $(newItem.parentNode).remove(newItem);
+                                break;
+                            }
+                            sortCache[i-1].element.insert({after:newItem});
+                        }
                         break;
                     }
                 }
@@ -1208,7 +1259,7 @@ Class.create("FilesList", SelectableElements, {
             padding: 0
 		});
 		$(document.getElementsByTagName('body')[0]).insert({bottom:edit});				
-		modal.showContent('editbox', (posSpan.getWidth()-offset.left)+'', '20', true);		
+		modal.showContent('editbox', (posSpan.getWidth()-offset.left)+'', '20', true, false, {opacity:0.25, backgroundColor:'#fff'});
 		edit.setStyle({left:(pos.left+offset.left)+'px', top:(pos.top+offset.top-scrollTop)+'px'});
 		window.setTimeout(function(){
 			edit.focus();
@@ -1286,7 +1337,7 @@ Class.create("FilesList", SelectableElements, {
 	 */
 	ajxpNodeToTableRow: function(ajxpNode, replaceItem){
 		var metaData = ajxpNode.getMetadata();
-		var newRow = new Element("tr");
+		var newRow = new Element("tr", {id:ajxpNode.getPath()});
 		var tBody = this.parsingCache.get('tBody') || $(this._htmlElement).select("tbody")[0];
 		this.parsingCache.set('tBody', tBody);
 		metaData.each(function(pair){
@@ -1453,13 +1504,14 @@ Class.create("FilesList", SelectableElements, {
 	 * @returns HTMLElement
 	 */
 	ajxpNodeToDiv: function(ajxpNode){
-		var newRow = new Element('div', {className:"thumbnail_selectable_cell"});
+		var newRow = new Element('div', {className:"thumbnail_selectable_cell", id:ajxpNode.getPath()});
 		var metadata = ajxpNode.getMetadata();
 				
 		var innerSpan = new Element('span', {style:"cursor:default;"});
-		var editors = ajaxplorer.findEditorsForMime((ajxpNode.isLeaf()?ajxpNode.getAjxpMime():"mime_folder"), true);
-		var textNode = ajxpNode.getLabel();
-		var img = AbstractEditor.prototype.getPreview(ajxpNode);
+
+        var img = this._previewFactory.generateBasePreview(ajxpNode);
+
+        var textNode = ajxpNode.getLabel();
 		var label = new Element('div', {
 			className:"thumbLabel",
 			title:textNode
@@ -1518,26 +1570,7 @@ Class.create("FilesList", SelectableElements, {
 			el(newRow, ajxpNode, 'thumb');
 		});
 
-		if(editors && editors.length)
-		{
-			this._crtImageIndex ++;
-			var imgIndex = this._crtImageIndex;
-			img.writeAttribute("data-is_loaded", "false");
-			img.writeAttribute("id", "ajxp_image_"+imgIndex);
-			var crtIndex = this._crtImageIndex;
-			
-			ajaxplorer.loadEditorResources(editors[0].resourcesManager);
-			var editorClass = Class.getByName(editors[0].editorClass);
-			if(editorClass){
-				var oImageToLoad = {
-					index:"ajxp_image_"+crtIndex,
-					ajxpNode:ajxpNode,
-					editorClass:editorClass, 
-					rowObject:newRow
-				};
-				this.imagesHash.set(oImageToLoad.index, oImageToLoad);
-			}
-		}			
+        this._previewFactory.enrichBasePreview(ajxpNode, newRow);
 		
 		// Defer Drag'n'drop assignation for performances
 		if(!ajxpNode.isRecycle()){
@@ -1643,30 +1676,12 @@ Class.create("FilesList", SelectableElements, {
 			var node = element.ajxpNode;
 			var image_element = element.IMAGE_ELEMENT || element.select('img')[0];		
 			var label_element = element.LABEL_ELEMENT || element.select('.thumbLabel')[0];
-			var tSize = this._thumbSize;
-			var tW, tH, mT, mB;
-			if(image_element.resizePreviewElement && image_element.getAttribute("data-is_loaded") == "true")
-			{
-				image_element.resizePreviewElement({width:tSize, height:tSize, margin:defaultMargin});
-			}
-			else
-			{
-				if(tSize >= 64)
-				{
-					tW = tH = 64;
-					mT = parseInt((tSize - 64)/2) + defaultMargin;
-					mB = tSize+(defaultMargin*2)-tH-mT-1;
-				}
-				else
-				{
-					tW = tH = tSize;
-					mT = mB = defaultMargin;
-				}
-				image_element.setStyle({width:tW+'px', height:tH+'px', marginTop:mT+'px', marginBottom:mB+'px'});
-			}
-			element.setStyle({width:tSize+25+'px', height:tSize+30+'px'});
-			
-			//var el_width = element.getWidth();
+            var tSize = this._thumbSize;
+            element.setStyle({width:tSize+25+'px', height:tSize+30+'px'});
+            this._previewFactory.setThumbSize(tSize);
+            this._previewFactory.resizeThumbnail(image_element);
+
+            // RESIZE LABEL
 			var el_width = tSize + 25;
 			var charRatio = 6;
 			var nbChar = parseInt(el_width/charRatio);
